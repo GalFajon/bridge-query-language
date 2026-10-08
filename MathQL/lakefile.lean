@@ -1,7 +1,8 @@
 import Lake
 open Lake DSL
 
-require leansqlite from git "git@github.com:leanprover/leansqlite.git" @ "main"
+require leansqlite from git "https://github.com/leanprover/leansqlite.git" @ "main"
+require postgresql from git "https://github.com/paulbutcher/leanpostgres" @ "main"
 
 package MathQL where
   leanOptions := #[⟨`experimental.module, true⟩, ⟨`autoImplicit, false⟩]
