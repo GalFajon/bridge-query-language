@@ -18,3 +18,7 @@ lean_exe mathql where
 @[default_target]
 lean_exe test where
   root := `Test
+
+@[default_target]
+lean_exe backendTest where
+  root := `BackendTest
