@@ -1,39 +1,19 @@
 import MathQL.Compile
 import MathQL.Database
-import SQLite
+import MathQL.Backend
 import Lean.Data.Json
 
-/-! Execution of a type-checked query against a SQLite connection, producing a
+/-! Execution of a type-checked query against a database connection, producing a
 JSON array of result rows. Each output column is read at its declared type and
 rendered to JSON; a NULL cell becomes JSON `null`. -/
 
 namespace MathQL
 
-/-- Read one output column at its declared type, as JSON; a NULL cell is `null`.
-Lists and products are stored as JSON text and returned verbatim. -/
-def decodeCell : Ty → SQLite.RowReader Lean.Json
-  | .int => do
-    let o : Option Int64 ← SQLite.RowReader.field
-    return match o with | some i => Lean.toJson i.toInt | none => Lean.Json.null
-  | .bool => do
-    let o : Option Bool ← SQLite.RowReader.field
-    return match o with | some b => Lean.toJson b | none => Lean.Json.null
-  | .string => do
-    let o : Option String ← SQLite.RowReader.field
-    return match o with | some s => Lean.toJson s | none => Lean.Json.null
-  | .list _ | .prod _ => do
-    let o : Option String ← SQLite.RowReader.field
-    match o with
-    | none => return Lean.Json.null
-    | some s =>
-      match Lean.Json.parse s with
-      | .ok j => return j
-      | .error e => throw (IO.userError s!"expected JSON in a list or product column: {e}")
-
 /-- Read one row's output columns, keyed by their aliases, in output order. -/
-def rowObject (cs : List (Ident × Ty × Expr)) : SQLite.RowReader (List (Ident × Lean.Json)) := do
-  cs.mapM fun (x, t, _) => do
-    let v ← decodeCell t
+def rowObject (cursor : Cursor) (cs : List (Ident × Ty × Expr)) :
+    IO (List (Ident × Lean.Json)) := do
+  cs.zipIdx.mapM fun ((x, t, _), i) => do
+    let v ← cursor.readCell i t
     return (x, v)
 
 /-- A runtime environment for postprocessing expressions -/
@@ -185,28 +165,31 @@ def evalPostprocess (env : PostEnvironment) :
 /-- Step through every result row, decoding each into its output object. -/
 partial def collectRows
   (funs : List (Ident × (List Lean.Json → Result Lean.Json)))
-  (stmt : SQLite.Stmt)
+  (cursor : Cursor)
   (q : Query)
   (acc : Array (List (Ident × Lean.Json))) :
     IO (Array (List (Ident × Lean.Json))) := do
-  if ← stmt.step then
-    let row ← (rowObject q.output).run stmt
+  if ← cursor.next then
+    let row ← rowObject cursor q.output
     let post := evalPostprocess {ident := row, function := funs} q.postprocess
-    collectRows funs stmt q (acc.push (row ++ post))
+    collectRows funs cursor q (acc.push (row ++ post))
   else
     return acc
 
-/-- Run a type-checked query against an open SQLite connection, as a JSON array of rows. -/
-def run (db : SQLite) (D : Database) (isSafeAlias : String → Bool) (q : Query) :
+/-- Encode an output row in the transport's ordered name/value format. -/
+def fieldsToJson (lst : List (Ident × Lean.Json)) : Lean.Json :=
+  .arr (lst.map (fun (x, j) => .arr #[.str x.name, j])).toArray
+
+/-- Run a checked query; driver and decoding failures become protocol errors. -/
+def run (db : Connection) (D : Database) (isSafeAlias : String → Bool) (q : Query) :
     IO (Except String Lean.Json) := do
   match compileQuery D isSafeAlias q with
   | .error e => return .error e
   | .ok sql =>
-    let stmt ← db.prepare (toString sql)
-    let rows ← collectRows (D.postFunction.map (fun ⟨f,_,c⟩ => (f, c))) stmt q #[]
-    return .ok (Lean.Json.arr (rows.map fieldsToJson))
-where
-  fieldsToJson (lst : List (Ident × Lean.Json)) : Lean.Json :=
-    .arr (lst.map (fun (x, j) => .arr #[.str x.name, j])).toArray
+    try
+      let cursor ← db.prepare (SQL.renderQueryWith db.dialect sql)
+      let rows ← collectRows (D.postFunction.map (fun ⟨f,_,c⟩ => (f, c))) cursor q #[]
+      return .ok (Lean.Json.arr (rows.map fieldsToJson))
+    catch e => return .error e.toString
 
 end MathQL
