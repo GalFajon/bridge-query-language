@@ -9,6 +9,5 @@ import MathQL.Parsing
 import MathQL.Typing
 import MathQL.QueryJson
 import MathQL.SQL
-import MathQL.Column
 import MathQL.Compile
 import MathQL.Execute
