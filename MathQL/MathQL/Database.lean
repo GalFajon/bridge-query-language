@@ -34,6 +34,17 @@ structure Schema where
   /-- A human description of the domain -/
   doc : String
 
+/-- Backend names for a registered MathQL SQL function. Missing PostgreSQL
+    support is explicit; SQLite remains the existing default. -/
+structure SQLFunctionNames where
+  sqlite : String
+  postgresql : Option String := none
+
+def SQLFunctionNames.forDialect (names : SQLFunctionNames) (dialect : SQL.Dialect) : Option String :=
+  match dialect with
+  | .sqlite => some names.sqlite
+  | .postgresql => names.postgresql
+
 def Schema.primaryColumns (sch : Schema) : List String :=
   (sch.column.filter (fun (_, c) => c.isPrimary)).map (fun (_, c) => c.column)
 
@@ -49,8 +60,8 @@ structure Database where
   const : List (Ident × Ty × SQL.Expr)
   /-- The domains/tables known to this database -/
   domain : List (DomainName × Schema)
-  /-- SQL functions -/
-  sqlFunction : List (Ident × (List Ty × Ty) × String)
+  /-- Typed MathQL names and their backend SQL function names. -/
+  sqlFunction : List (Ident × (List Ty × Ty) × SQLFunctionNames)
   /-- Postprocessing functions -/
   postFunction : List (Ident × (List Ty × Ty) × (List Lean.Json → Result Lean.Json))
   /-- Example queries, each with a short note -/

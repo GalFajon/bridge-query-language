@@ -26,7 +26,7 @@ def toyDB : Database where
            (.label "ds", { column := "ds", ty := .list .int, isPrimary := false, doc := "" })]
         foreignKey := []
         doc := "" })]
-  sqlFunction := [(.ident "size", ([.string], .int), "length")]
+  sqlFunction := [(.ident "size", ([.string], .int), { sqlite := "length" })]
   postFunction := [(.ident "plus", ([.int, .int], .int), plus)]
   examples := []
 
@@ -170,6 +170,23 @@ def postOf (j : Lean.Json) (row : List (String × Lean.Json)) :
 -- An order key that calls a database function is kept.
 #guard match renderOf (jqOrder [("m", "g.n")] "true" [("size('ab')", "asc")]) with
   | .ok s => s.endsWith "ORDER BY \"length\"('ab') ASC"
+  | .error _ => false
+
+-- Named SQL functions require an explicit PostgreSQL mapping.
+#guard match Input.Query.fromJson (jq [("n", "size('ab')")] "true")
+    |>.bind (checkQuery toyDB)
+    |>.bind (compileQueryWith .postgresql toyDB toySafeAlias) with
+  | .error e => e == "function size is not available on PostgreSQL"
+  | .ok _ => false
+
+-- A PostgreSQL mapping changes the emitted function name without changing SQLite.
+#guard match Input.Query.fromJson (jq [("n", "size('ab')")] "true")
+    |>.bind (checkQuery toyDB)
+    |>.bind (compileQueryWith .postgresql
+      { toyDB with sqlFunction :=
+        [(.ident "size", ([.string], .int),
+          { sqlite := "length", postgresql := some "char_length" })] } toySafeAlias) with
+  | .ok q => ((SQL.renderQueryWith .postgresql q).splitOn "\"char_length\"").length > 1
   | .error _ => false
 
 -- The alias renders bare in ORDER BY.

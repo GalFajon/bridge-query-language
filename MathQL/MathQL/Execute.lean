@@ -183,7 +183,7 @@ def fieldsToJson (lst : List (Ident × Lean.Json)) : Lean.Json :=
 /-- Run a checked query; driver and decoding failures become protocol errors. -/
 def run (db : Connection) (D : Database) (isSafeAlias : String → Bool) (q : Query) :
     IO (Except String Lean.Json) := do
-  match compileQuery D isSafeAlias q with
+  match compileQueryWith db.dialect D isSafeAlias q with
   | .error e => return .error e
   | .ok sql =>
     try

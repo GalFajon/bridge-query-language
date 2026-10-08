@@ -31,7 +31,8 @@ structure SqlCtx where
   /-- The schema of a domain. -/
   schema : List (DomainName × Schema)
   /-- The mapping from MathQL function names to SQL functions -/
-  function : List (Ident × String)
+  function : List (Ident × SQLFunctionNames)
+  dialect : SQL.Dialect
   /-- Is a name free of the column names of the database, and so usable as an alias? -/
   isSafeAlias : String → Bool
 
@@ -182,7 +183,10 @@ def compileExpr (Γ : SqlCtx) (e : Expr) : CompileM SQL.Expr := do
     let ss ← compileExprList Γ es
     match Γ.function.lookup f with
     | .none => throw s!"unknown function {f.name}"
-    | .some c => return .call c ss
+    | .some names =>
+      match names.forDialect Γ.dialect with
+      | .some c => return .call c ss
+      | .none => throw s!"function {f.name} is not available on PostgreSQL"
 
   | .unop op e =>
     let s ← compileExpr Γ e
@@ -257,12 +261,14 @@ end
 
 /-- Compile a type-checked query to a SQL query, with `isSafeAlias` deciding which
     names may serve as aliases. -/
-def compileQuery (D : Database) (isSafeAlias : String → Bool) (q : Query) :
+def compileQueryWith (dialect : SQL.Dialect) (D : Database)
+    (isSafeAlias : String → Bool) (q : Query) :
     Result SQL.Query := do
   let Γ : SqlCtx :=
     { ident := (q.vars.map fun (x, n) => (x, .domain n)) ++
                (D.const.map fun (x, _, s) => (x, .const s))
       function := D.sqlFunction.map (fun ⟨f, _, c⟩ => (f ,c))
+      dialect := dialect
       schema := D.domain
       isSafeAlias := isSafeAlias
     }
@@ -292,5 +298,9 @@ def compileQuery (D : Database) (isSafeAlias : String → Bool) (q : Query) :
   | .ok ((froms, output, cond, order), st) =>
     let joins := st.joins.reverse.map fun (table, alias, eqs) => (table, alias.name, eqs)
     return { froms, joins, output, cond, order, limit := q.limit }
+
+/-- Preserve the original SQLite compilation entry point for existing callers. -/
+def compileQuery (D : Database) (isSafeAlias : String → Bool) (q : Query) :
+    Result SQL.Query := compileQueryWith .sqlite D isSafeAlias q
 
 end MathQL
