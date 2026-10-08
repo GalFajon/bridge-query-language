@@ -230,17 +230,17 @@ def compileExpr (Γ : SqlCtx) (e : Expr) : CompileM SQL.Expr := do
       let s ← compileExpr Γ e
       return .isNull s
 
-  | .tuple es =>
+  | .tuple ts es =>
     let ss ← compileExprList Γ es
-    return .jsonArray ss
+    return .jsonArray ((ts.zip ss).map fun (t, s) => .jsonValue t s)
 
-  | .list es =>
+  | .list t es =>
     let ss ← compileExprList Γ es
-    return .jsonArray ss
+    return .jsonArray (ss.map (.jsonValue t))
 
-  | .proj e i =>
+  | .proj t e i =>
     let s ← compileExpr Γ e
-    return .jsonExtract s i
+    return .jsonExtract t s i
 
 termination_by sizeOf e
 

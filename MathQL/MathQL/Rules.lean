@@ -54,16 +54,16 @@ inductive ExprOfTy : Context → Expr → Ty → Prop where
 
   | tuple : ∀ {Γ es ts},
         TupleOfTy Γ es ts →
-        ExprOfTy Γ (.tuple es) (.prod ts)
+        ExprOfTy Γ (.tuple ts es) (.prod ts)
 
   | proj : ∀ {Γ e ts i t},
         ExprOfTy Γ e (.prod ts) →
         ts[i]? = .some t →
-        ExprOfTy Γ (.proj e i) t
+        ExprOfTy Γ (.proj t e i) t
 
   | list : ∀ {Γ es t},
         ListOfTy Γ es t →
-        ExprOfTy Γ (.list es) (.list t)
+        ExprOfTy Γ (.list t es) (.list t)
 
   | ite : ∀ {Γ c a b t},
         ExprOfTy Γ c .bool →

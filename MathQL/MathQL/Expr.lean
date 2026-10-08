@@ -39,12 +39,12 @@ inductive Expr where
   | binop : BinaryOp → Expr → Expr → Expr
   /-- Comparison -/
   | compare : ComparisonOp → Ty → Expr → Expr → Expr
-  /-- List -/
-  | list : List Expr → Expr
-  /-- Tuple -/
-  | tuple : List Expr → Expr
-  /-- Tuple projection -/
-  | proj : Expr → Nat → Expr
+  /-- List, retaining the checked element type for JSON construction. -/
+  | list : Ty → List Expr → Expr
+  /-- Tuple, retaining the checked component types for JSON construction. -/
+  | tuple : List Ty → List Expr → Expr
+  /-- Tuple projection, retaining the result type for SQL extraction. -/
+  | proj : Ty → Expr → Nat → Expr
   /-- Conditional expression -/
   | ite : Expr → Expr → Expr → Expr
   /-- Defined? -/

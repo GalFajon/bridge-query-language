@@ -19,7 +19,7 @@ def check (Γ : Context) (e : Input.Expr) (t : Ty) : Result { e' : Expr // ExprO
     match t with
     | .list t => do
       let ⟨es, hes⟩ ← checkList Γ t es
-      return ⟨.list es, .list hes⟩
+      return ⟨.list t es, .list hes⟩
     | _ => throw s!"expected {t}, but got a list"
 
   | .ite e₁ e₂ e₃ => do
@@ -32,7 +32,7 @@ def check (Γ : Context) (e : Input.Expr) (t : Ty) : Result { e' : Expr // ExprO
     match t with
     | .prod ts => do
       let ⟨es', h⟩ ← checkTuple Γ es ts
-      return ⟨.tuple es', .tuple h⟩
+      return ⟨.tuple ts es', .tuple h⟩
     | _ => throw s!"expected {t}, but got a tuple"
 
   | e => do
@@ -75,7 +75,7 @@ def infer (Γ : Context) (e : Input.Expr) : Result (Σ (t : Ty), { e' : Expr // 
     match te, he with
     | .prod ts, hp =>
       match h : ts[idx]? with
-      | some t => .ok ⟨t, .proj e' idx, .proj hp h⟩
+      | some t => .ok ⟨t, .proj t e' idx, .proj hp h⟩
       | none => throw s!"projection index {idx} out of range"
     | _, _ => throw "projection of a non-product"
 
@@ -118,7 +118,7 @@ def infer (Γ : Context) (e : Input.Expr) : Result (Σ (t : Ty), { e' : Expr // 
   | .list (e :: es) => do
     let ⟨t, e, he⟩ ← infer Γ e
     let ⟨es, hes⟩ ← checkList Γ t es
-    return ⟨.list t, .list (e :: es), .list (.cons he hes)⟩
+    return ⟨.list t, .list t (e :: es), .list (.cons he hes)⟩
 
   | .ite e₁ e₂ e₃ => do
     let ⟨c, hc⟩ ← check Γ e₁ .bool
@@ -128,7 +128,7 @@ def infer (Γ : Context) (e : Input.Expr) : Result (Σ (t : Ty), { e' : Expr // 
 
   | .tuple es => do
     let ⟨ts, es', h⟩ ← inferTuple Γ es
-    return ⟨.prod ts, .tuple es', .tuple h⟩
+    return ⟨.prod ts, .tuple ts es', .tuple h⟩
 
 def inferDomain (Γ : Context) (e : Input.Expr) :
   Result (Σ (d : DomainName), { e : Domain // DomainOfTy Γ e d})

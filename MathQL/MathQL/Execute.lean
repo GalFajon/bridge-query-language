@@ -148,15 +148,15 @@ def evalPostExpr (env : PostEnvironment) : Expr → Result Lean.Json
   let v2 ← evalPostExpr env e2
   evalComparison op t v1 v2
 
-| .list es => do
+| .list _ es => do
   let vs ← es.mapM (evalPostExpr env)
   return .arr vs.toArray
 
-| .tuple es => do
+| .tuple _ es => do
   let vs ← es.mapM (evalPostExpr env)
   return .arr vs.toArray
 
-| .proj e1 n => do
+| .proj _ e1 n => do
   let v ← evalPostExpr env e1
   v.getArrVal? n -- We're relying here on Result = Except String
 
