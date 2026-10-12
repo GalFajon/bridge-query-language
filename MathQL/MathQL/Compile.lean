@@ -112,6 +112,12 @@ def mkJoin (Γ : SqlCtx) (table : String) (eqs : List (String × SQL.Expr))
   modify (fun st => { st with joins := (table, alias, eqs) :: st.joins })
   return alias
 
+/-- Explicit collation also applies to string primary-key/foreign-key equality. -/
+private def collateColumn (sch : Schema) (column : String) (e : SQL.Expr) : SQL.Expr :=
+  match sch.column.find? (fun (_, c) => c.column == column) with
+  | some (_, c) => if c.ty == .string then .collateText e else e
+  | none => e
+
 mutual
 
 /-- The alias of the row denoted by a domain expression, and its domain. The
@@ -136,7 +142,9 @@ def compileDomain (Γ : SqlCtx) (d : Domain) : CompileM (Alias × DomainName) :=
     | none =>
       let sch ← Γ.getSchema dn
       let ks ← compileExprList Γ es
-      let a ← mkJoin Γ sch.table (List.zip sch.primaryColumns ks)
+      let eqs := (List.zip sch.primaryColumns ks).map fun (c, e) =>
+        (c, collateColumn sch c e)
+      let a ← mkJoin Γ sch.table eqs
       storeHoist d a dn
       return (a, dn)
 
@@ -148,7 +156,7 @@ def compileDomain (Γ : SqlCtx) (d : Domain) : CompileM (Alias × DomainName) :=
       let sch ← Γ.getSchema dn
       let f ← sch.getForeignKey l
       let fsch ← Γ.getSchema f.domain
-      let eqs := f.column.map (fun (c, c') => (c', .col a'.name c))
+      let eqs := f.column.map (fun (c, c') => (c', collateColumn fsch c' (.col a'.name c)))
       let a ← mkJoin Γ fsch.table eqs
       storeHoist d a f.domain
       return (a, f.domain)
@@ -206,7 +214,8 @@ def compileExpr (Γ : SqlCtx) (e : Expr) : CompileM SQL.Expr := do
     let s₂ ← compileExpr Γ e₂
     match t with
     | .list _ | .prod _ => return .compare op (.json s₁) (.json s₂)
-    | .int | .bool | .string => return .compare op s₁ s₂
+    | .string => return .compare op (.collateText s₁) (.collateText s₂)
+    | .int | .bool => return .compare op s₁ s₂
 
   | .ite c a b =>
     let sc ← compileExpr Γ c
@@ -291,11 +300,20 @@ def compileQueryWith (dialect : SQL.Dialect) (D : Database)
       return (x, a.name, s)
     let output := columns.map fun (_, a, s) => (s, a)
     let Δ : SqlCtx :=
-      { Γ with ident := (columns.map fun (x, a, _) => (x, .const (.ref a))) ++ Γ.ident }
+      -- SQL output aliases cannot occur inside an ORDER BY expression on PostgreSQL.
+      -- Resolve them to their expressions; retain a bare alias only when legal below.
+      { Γ with ident := (columns.map fun (x, _, s) => (x, .const s)) ++ Γ.ident }
     let cond ← compileExpr Γ q.condition
-    let order ← q.order.filterMapM fun ((e, dir) : Expr × Direction) => do
+    let order ← q.order.filterMapM fun ((t, e, dir) : Ty × Expr × Direction) => do
       let s ← compileExpr Δ e
-      return if s.isConstant then none else some (s, dir)
+      if s.isConstant then return none
+      let s := if t == .string then SQL.Expr.collateText s else
+        match e with
+        | .ident x => match columns.find? (fun (y, _, _) => x == y) with
+          | some (_, a, _) => .ref a
+          | none => s
+        | _ => s
+      return some (s, dir)
     return (froms, output, cond, order)
   match act.run { nextAlias := 1, varAlias := [], joins := [], hoisted := [] } with
   | .error e => throw e

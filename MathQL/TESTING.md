@@ -51,6 +51,8 @@ Both backends must produce the same expected JSON for:
   empty values, multiple chunks, nested arrays, booleans, and null elements;
 - physical column discovery, including undeclared and mixed-case column names;
 - explicit null ordering, output aliases, limits, empty results, and empty outputs;
+- bytewise string comparisons and sorting, including Unicode, columns with a
+  different declared collation, primary-key lookup, and expressions over aliases;
 - missing join targets, object lookups without domain variables, and joins across
   multiple domain variables;
 - shared postprocessing and dependent postprocessing fields;
@@ -61,7 +63,12 @@ One test deliberately has backend-specific expectations: ordered JSON
 comparison. SQLite's existing renderer compares canonical JSON **text**, whereas
 PostgreSQL compares JSONB **structurally**. Thus `[2,2] > [2,10]` is true on SQLite
 and false on PostgreSQL. This difference is recorded rather than hidden by
-normalizing test output. String collation is still governed by the database.
+normalizing test output.
+
+String comparisons, string key lookups, and string sort keys explicitly use
+SQLite BINARY / PostgreSQL C collation. These match Lean's code-point ordering
+for valid UTF-8 strings regardless of the database's default collation. Sort
+expressions expand output aliases when SQL cannot resolve a nested alias.
 
 Integers are signed 64-bit values. Evaluated arithmetic outside that range fails
 the query, including in postprocessing; it is never clamped or converted to null.

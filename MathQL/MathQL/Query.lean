@@ -13,6 +13,7 @@ structure Query where
   output : List (Ident × Ty × Expr)
   postprocess : List (Ident × Ty × Expr)
   limit : Option Nat
-  order : List (Expr × Direction)
+  /-- Retain each key's type so SQL rendering can choose its collation. -/
+  order : List (Ty × Expr × Direction)
 
 end MathQL

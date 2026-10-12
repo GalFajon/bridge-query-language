@@ -221,12 +221,12 @@ def checkDomainVars (Γ : Context) (acc : List (Ident × DomainName)) :
   | .some _ => checkDomainVars (Γ.extendDomainIdent x n) ((x, n) :: acc) xns
 
 def checkOrder (Γ : Context) :
-    List Input.OrderEntry → Result (List (Expr × Direction))
+    List Input.OrderEntry → Result (List (Ty × Expr × Direction))
   | [] => return []
   | entry :: rest => do
-    let ⟨_, e, _⟩ ← infer Γ entry.expr
+    let ⟨t, e, _⟩ ← infer Γ entry.expr
     let rest ← checkOrder Γ rest
-    return (e, entry.dir) :: rest
+    return (t, e, entry.dir) :: rest
 
 def checkPostprocess (Γ : Context) :
   List (String × Input.Expr) → Result (List (Ident × Ty × Expr))

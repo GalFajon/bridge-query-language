@@ -22,6 +22,7 @@ inductive Expr where
   | unop      : UnaryOp → Expr → Expr
   | binop     : BinaryOp → Expr → Expr → Expr
   | compare   : ComparisonOp → Expr → Expr → Expr
+  | collateText : Expr → Expr                  -- deterministic bytewise string order
   | isNull    : Expr → Expr
   | isNotNull : Expr → Expr
   | case      : (cond thn els : Expr) → Expr   -- CASE WHEN cond THEN thn ELSE els END
@@ -41,7 +42,7 @@ mutual
 def Expr.isConstant : Expr → Bool
   | .int _ | .bool _ | .str _ | .null => true
   | .col _ _ | .ref _ | .call _ _ => false
-  | .unop _ e | .isNull e | .isNotNull e | .json e
+  | .unop _ e | .isNull e | .isNotNull e | .json e | .collateText e
   | .jsonValue _ e | .jsonExtract _ e _ => e.isConstant
   | .binop _ e₁ e₂ | .compare _ e₁ e₂ => e₁.isConstant && e₂.isConstant
   | .case c t e => c.isConstant && t.isConstant && e.isConstant
@@ -128,6 +129,9 @@ def renderExprWith (dialect : Dialect) : Expr → String
       | .sqlite, .add | .sqlite, .sub | .sqlite, .mul => checkedSQLiteInteger s
       | _, _ => s
   | .compare op e₁ e₂ => s!"({renderExprWith dialect e₁} {renderCompareOp op} {renderExprWith dialect e₂})"
+  | .collateText e =>
+      let collation := if dialect == .sqlite then "BINARY" else "C"
+      s!"({renderExprWith dialect e} COLLATE {renderIdent collation})"
   | .isNull e         => s!"({renderExprWith dialect e} IS NULL)"
   | .isNotNull e      => s!"({renderExprWith dialect e} IS NOT NULL)"
   | .case c t e       => s!"(CASE WHEN {renderExprWith dialect c} THEN {renderExprWith dialect t} ELSE {renderExprWith dialect e} END)"

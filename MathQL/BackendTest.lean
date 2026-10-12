@@ -17,7 +17,13 @@ private def fixture : Database where
       col "items" (.list .int), col "bad" (.list .int)]
     foreignKey := [(.label "parent", {
       domain := .domain "Row", column := [("ref", "id")], doc := "" })]
-    doc := "" })]
+    doc := "" }),
+    (.domain "TextRow", {
+      table := "mathql_backend_test"
+      column := [(.label "label", {column := "label", ty := .string, isPrimary := true, doc := ""}),
+        col "n" .int]
+      foreignKey := []
+      doc := "string-key collation fixture" })]
   sqlFunction := []
   postFunction := []
   examples := []
@@ -43,8 +49,9 @@ private def execute (db : Connection) (sql : String) : IO Unit := do
 /-- Both fixtures have identical logical values; only their physical SQL types differ. -/
 private def setup (db : Connection) : IO Unit := do
   let jsonTy := if db.dialect == .postgresql then "JSONB" else "TEXT"
+  let labelTy := if db.dialect == .sqlite then "TEXT COLLATE NOCASE" else "TEXT"
   execute db s!"CREATE TEMP TABLE mathql_backend_test (id BIGINT PRIMARY KEY, \
-    n BIGINT, flag BOOLEAN, label TEXT, pair {jsonTy}, items {jsonTy}, \
+    n BIGINT, flag BOOLEAN, label {labelTy}, pair {jsonTy}, items {jsonTy}, \
     ref BIGINT, bad TEXT, c1 BIGINT, \"C2\" BIGINT)"
   let str := fun s => SQL.renderExprWith db.dialect (.str s)
   let json := fun s => if db.dialect == .postgresql then s!"{str s}::jsonb" else str s
@@ -237,6 +244,38 @@ private def suite (db : Connection) : IO Unit := do
   IO.println "  PASS decoding, driver, and compilation errors"
   expect db safe "connection remains usable after an error"
     (query [("id", "r.id")] "r.id == 2") (json% [[["id", 2]]])
+  expect db safe "bytewise string operators in SQL and postprocessing"
+    (query [("lt", "'Z' < 'a'"), ("le", "'Z' <= 'a'"), ("gt", "'a' > 'Z'"),
+      ("ge", "'a' >= 'Z'"), ("eq", "'A' == 'a'"), ("ne", "'A' != 'a'"),
+      ("unicode", "'é' > 'z'")] "true" []
+      [("post", "'Z' < 'a'"), ("post_unicode", "'é' > 'z'")] false)
+    (json% [[["lt", true], ["le", true], ["gt", true], ["ge", true],
+      ["eq", false], ["ne", true], ["unicode", true], ["post", true],
+      ["post_unicode", true]]])
+  execute db "UPDATE mathql_backend_test SET label = CASE id WHEN 1 THEN 'a' WHEN 2 THEN 'Z' END"
+  expect db safe "string comparison overrides column collation"
+    (query [("id", "r.id")] "r.label == 'A'") (json% [])
+  expect db safe "string primary-key lookup overrides column collation"
+    (query [("n", "TextRow['A'].n")] "true" [] [] false)
+    (json% [[["n", null]]])
+  expect db safe "ascending string field order and nulls"
+    (query [("id", "r.id")] "true" [("r.label", "asc")])
+    (json% [[["id", 3]], [["id", 2]], [["id", 1]]])
+  expect db safe "descending string output-alias order and nulls"
+    (query [("id", "r.id"), ("s", "r.label")] "true" [("s", "desc")])
+    (json% [[["id", 1], ["s", "a"]], [["id", 2], ["s", "Z"]],
+      [["id", 3], ["s", null]]])
+  expect db safe "string sort expression can refer to an output alias"
+    (query [("id", "r.id"), ("s", "r.label")] "r.id <= 2"
+      [("if s == 'a' then 'Z' else 'a'", "asc")])
+    (json% [[["id", 1], ["s", "a"]], [["id", 2], ["s", "Z"]]])
+  expect db safe "arithmetic sort expression can refer to an output alias"
+    (query [("n", "r.n")] "r.id <= 2" [("n * -1", "asc")])
+    (json% [[["n", 2]], [["n", 1]]])
+  expect db safe "collated alias sorting precedes limit"
+    (json% {"domains": [["r", "Row"]], "output": [["s", "r.label"]],
+      "condition": "defined r.label", "order": [["s", "asc"]], "limit": 1})
+    (json% [[["s", "Z"]]])
 
 /-- PostgreSQL is opt-in, but a supplied connection must work: errors never become skips. -/
 def main : IO Unit := do

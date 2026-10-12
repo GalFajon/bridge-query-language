@@ -120,6 +120,10 @@ query in both SQL execution and postprocessing, including overflow in an
 intermediate result. Division truncates toward zero; division by zero produces
 an absent value, not an overflow error.
 
+Strings compare and sort by code point, with explicit BINARY collation on
+SQLite and C collation on PostgreSQL (UTF-8). Database and column locale settings
+do not change these comparisons, including string primary-key lookups.
+
 ## Queries
 
 A query is the top-level form, submitted as JSON:
@@ -188,7 +192,8 @@ A database connects the language to storage. It maps:
 
 Every table and every output column of the compiled `SELECT` carries an alias the
 compiler generates — `c1`, `c2`, … — and a key of the order clause naming an output
-column renders as that column's alias. The compiler draws the names from a predicate
+column uses that alias when SQL permits; collated or nested sort expressions
+expand it to the original output expression. The compiler draws the names from a predicate
 the caller supplies, which accepts a name when no table of the database has a column
 of that name.
 
