@@ -47,6 +47,8 @@ Both backends must produce the same expected JSON for:
 - signed division and division by zero in SQL and postprocessing;
 - nested arrays, boolean lists and tuples, postprocessing projections, JSON nulls,
   and JSON equality;
+- list/tuple construction across PostgreSQL's 100-argument boundary, including
+  empty values, multiple chunks, nested arrays, booleans, and null elements;
 - physical column discovery, including undeclared and mixed-case column names;
 - explicit null ordering, output aliases, limits, empty results, and empty outputs;
 - missing join targets, object lookups without domain variables, and joins across

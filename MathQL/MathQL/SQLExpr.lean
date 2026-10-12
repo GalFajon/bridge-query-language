@@ -82,6 +82,17 @@ private def checkedSQLiteInteger (s : String) : String :=
      THEN _mathql_integer ELSE abs(-9223372036854775808) END \
      FROM (SELECT {s} AS _mathql_integer))"
 
+/-- PostgreSQL limits function calls to 100 arguments. Concatenate complete
+array chunks (never their elements), preserving nesting, order and JSON null. -/
+private def postgresArray (values : List String) : String :=
+  let build (chunk : Array String) := s!"jsonb_build_array({", ".intercalate chunk.toList})"
+  let (chunks, last) := values.foldl (fun (chunks, chunk) value =>
+    let chunk := chunk.push value
+    if chunk.size == 100 then (chunks.push (build chunk), #[]) else (chunks, chunk))
+    ((#[], #[]) : Array String × Array String)
+  let chunks := if last.isEmpty && !chunks.isEmpty then chunks else chunks.push (build last)
+  "(" ++ " || ".intercalate chunks.toList ++ ")"
+
 mutual
 
 /-- Render an expression for the selected database. String literals use single
@@ -125,7 +136,7 @@ def renderExprWith (dialect : Dialect) : Expr → String
       | .postgresql => s!"({renderExprWith dialect e})::jsonb"
   | .jsonArray es     => match dialect with
       | .sqlite => s!"json_array({renderArgsWith dialect es})"
-      | .postgresql => s!"jsonb_build_array({renderArgsWith dialect es})"
+      | .postgresql => postgresArray (renderValuesWith dialect es)
   | .jsonValue t e    =>
       let s := renderExprWith dialect e
       match dialect, t with
@@ -153,6 +164,10 @@ def renderArgsWith (dialect : Dialect) : List Expr → String
   | [] => ""
   | [e] => renderExprWith dialect e
   | e :: es => renderExprWith dialect e ++ ", " ++ renderArgsWith dialect es
+
+def renderValuesWith (dialect : Dialect) : List Expr → List String
+  | [] => []
+  | e :: es => renderExprWith dialect e :: renderValuesWith dialect es
 
 end
 

@@ -121,6 +121,27 @@ private def suite (db : Connection) : IO Unit := do
   expect db safe "JSON equality"
     (query [("id", "r.id")] "r.items == [2,10]")
     (json% [[["id", 1]]])
+  for count in [0, 1, 99, 100, 101, 200, 201] do
+    let elements := (List.range count).map toString
+    let value := Lean.toJson (List.range count)
+    -- The conditional supplies the element type for the empty-list case.
+    let list := s!"if false then [0] else [{", ".intercalate elements}]"
+    expect db safe s!"list constructor with {count} elements"
+      (query [("v", list)] "true" [] [] false)
+      (Lean.toJson [[("v", value)]])
+    if count > 1 then
+      expect db safe s!"tuple constructor with {count} elements"
+        (query [("v", s!"({", ".intercalate elements})")] "true" [] [] false)
+        (Lean.toJson [[("v", value)]])
+  let repeated := List.replicate 101 "r.items"
+  expect db safe "large nested array preserves array elements"
+    (query [("v", s!"[{", ".intercalate repeated}]")] "r.id == 1")
+    (Lean.toJson [[("v", Lean.toJson (List.replicate 101 (json% [2,10])))]])
+  let bools := List.replicate 100 "true" ++ ["r.flag", "false"]
+  expect db safe "large boolean list preserves null at chunk boundary"
+    (query [("v", s!"[{", ".intercalate bools}]")] "r.id == 3")
+    (Lean.toJson [[("v", Lean.toJson (List.replicate 100 (json% true) ++
+      [Lean.Json.null, json% false]))]])
   expect db safe "NULLS FIRST ascending"
     (query [("id", "r.id")] "true" [("r.n", "asc"), ("r.id", "asc")])
     (json% [[["id", 3]], [["id", 2]], [["id", 1]]])
