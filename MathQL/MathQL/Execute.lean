@@ -21,7 +21,8 @@ structure PostEnvironment where
   ident : List (Ident × Lean.Json)
   function : List (Ident × (List Lean.Json → Result Lean.Json))
 
-/-- Absence becomes JSON null; integer overflow must fail the whole query. -/
+/-- Recoverable absence becomes JSON null at each expression boundary;
+integer overflow must fail the whole query. -/
 inductive PostError where
   | absent : String → PostError
   | overflow : PostError
@@ -33,7 +34,14 @@ private def liftPost {α : Type} (r : Result α) : PostResult α := r.mapError .
 private def postInteger (n : Int) : PostResult Lean.Json :=
   if integerInRange n then .ok (.num n) else .error .overflow
 
+/-- An absent subexpression is a value its parent can handle, not an early exit
+from the entire output field. Never turn fatal arithmetic errors into null. -/
+private def nullOnAbsence : PostResult Lean.Json → PostResult Lean.Json
+  | .error (.absent _) => .ok .null
+  | result => result
+
 def evalUnaryOp : UnaryOp → Lean.Json → PostResult Lean.Json
+| _, .null => return .null
 | .not, j => do
   let b ← liftPost j.getBool?
   return .bool (not b)
@@ -42,6 +50,10 @@ def evalUnaryOp : UnaryOp → Lean.Json → PostResult Lean.Json
   postInteger (- k)
 
 def evalBinaryOp : BinaryOp → Lean.Json → Lean.Json → PostResult Lean.Json
+-- SQL three-valued logic: a decisive boolean wins even when the other is null.
+| .and, .bool false, _ | .and, _, .bool false => return .bool false
+| .or, .bool true, _ | .or, _, .bool true => return .bool true
+| _, .null, _ | _, _, .null => return .null
 | .and, v1, v2 => do
   let b1 ← liftPost v1.getBool?
   let b2 ← liftPost v2.getBool?
@@ -65,7 +77,7 @@ def evalBinaryOp : BinaryOp → Lean.Json → Lean.Json → PostResult Lean.Json
 | .div, v1, v2 => do
   let k1 ← liftPost v1.getInt?
   let k2 ← liftPost v2.getInt?
-  if k2 == 0 then throw (.absent "division by zero") else postInteger (k1.tdiv k2)
+  if k2 == 0 then return .null else postInteger (k1.tdiv k2)
 
 /-- Compare two JSON values at their MathQL type. -/
 def compareJson : Ty → Lean.Json → Lean.Json → Result Ordering
@@ -105,75 +117,77 @@ def isDefined : PostResult Lean.Json → PostResult Bool
 | .error .overflow => .error .overflow
 | .ok _ => .ok true
 
-def evalPostExpr (env : PostEnvironment) : Expr → PostResult Lean.Json
+/-- Evaluate each subexpression to a nullable value. Normalizing recoverable
+absence here makes direct failures and previously decoded nulls interchangeable. -/
+def evalPostExpr (env : PostEnvironment) (expr : Expr) : PostResult Lean.Json :=
+  nullOnAbsence <| match expr with
+  | .int n => postInteger n
 
-| .int n => postInteger n
+  | .unop .neg (.int n) => postInteger (-n)
 
-| .unop .neg (.int n) => postInteger (-n)
+  | .bool b => return .bool b
 
-| .bool b => return .bool b
+  | .str s => return .str s
 
-| .str s => return .str s
+  | .ident x =>
+    match env.ident.lookup x with
+    | none => throw (.absent s!"unknown identifier {x.name}")
+    | some v => return v
 
-| .ident x =>
-  match env.ident.lookup x with
-  | none => throw (.absent s!"unknown identifier {x.name}")
-  | some v => return v
+  | .id _ =>
+    throw (.absent "id is not allowed in postprocessing")
 
-| .id _ =>
-  throw (.absent "id is not allowed in postprocessing")
+  | .field _ _ =>
+    throw (.absent "field projection is not allowed in postprocessing")
 
-| .field _ _ =>
-  throw (.absent "field projection is not allowed in postprocessing")
+  | .call f args =>
+    match env.function.lookup f with
+    | .none => throw (.absent s!"unknown function {f.name}")
+    | .some f => do
+      let vs ← args.mapM (evalPostExpr env)
+      let v ← liftPost (f vs)
+      match v with
+      | .num _ => postInteger (← liftPost v.getInt?)
+      | _ => return v
 
-| .call f args =>
-  match env.function.lookup f with
-  | .none => throw (.absent s!"unknown function {f.name}")
-  | .some f => do
-    let vs ← args.mapM (evalPostExpr env)
-    let v ← liftPost (f vs)
-    match v with
-    | .num _ => postInteger (← liftPost v.getInt?)
-    | _ => return v
+  | .unop op e => do
+    let v ← evalPostExpr env e
+    evalUnaryOp op v
 
-| .unop op e => do
-  let v ← evalPostExpr env e
-  evalUnaryOp op v
+  | .binop op e1 e2 => do
+    let v1 ← evalPostExpr env e1
+    let v2 ← evalPostExpr env e2
+    evalBinaryOp op v1 v2
 
-| .binop op e1 e2 => do
-  let v1 ← evalPostExpr env e1
-  let v2 ← evalPostExpr env e2
-  evalBinaryOp op v1 v2
+  | .compare op t e1 e2 => do
+    let v1 ← evalPostExpr env e1
+    let v2 ← evalPostExpr env e2
+    liftPost (evalComparison op t v1 v2)
 
-| .compare op t e1 e2 => do
-  let v1 ← evalPostExpr env e1
-  let v2 ← evalPostExpr env e2
-  liftPost (evalComparison op t v1 v2)
+  | .list _ es => do
+    let vs ← es.mapM (evalPostExpr env)
+    return .arr vs.toArray
 
-| .list _ es => do
-  let vs ← es.mapM (evalPostExpr env)
-  return .arr vs.toArray
+  | .tuple _ es => do
+    let vs ← es.mapM (evalPostExpr env)
+    return .arr vs.toArray
 
-| .tuple _ es => do
-  let vs ← es.mapM (evalPostExpr env)
-  return .arr vs.toArray
+  | .proj _ e1 n => do
+    let v ← evalPostExpr env e1
+    liftPost (v.getArrVal? n)
 
-| .proj _ e1 n => do
-  let v ← evalPostExpr env e1
-  liftPost (v.getArrVal? n)
+  | .ite b e1 e2 => do
+    let b ← evalPostExpr env b
+    match b with
+    | .bool true => evalPostExpr env e1
+    | .bool false | .null => evalPostExpr env e2
+    | _ => throw (.absent "boolean expected")
 
-| .ite b e1 e2 => do
-  let b ← evalPostExpr env b
-  match b.getBool? with
-  | .ok true => evalPostExpr env e1
-  | .ok false => evalPostExpr env e2
-  | .error msg => throw (.absent s!"boolean expected ({msg})")
+  | .defined e => do
+    return .bool (← isDefined (evalPostExpr env e))
 
-| .defined e => do
-  return .bool (← isDefined (evalPostExpr env e))
-
-| .undefined e => do
-  return .bool (not (← isDefined (evalPostExpr env e)))
+  | .undefined e => do
+    return .bool (not (← isDefined (evalPostExpr env e)))
 
 
 def evalPostprocess (env : PostEnvironment) :

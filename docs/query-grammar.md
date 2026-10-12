@@ -35,8 +35,11 @@ A query is a JSON object:
   database after it returns the rows. Each name is a plain identifier, distinct from
   the output column names and from the names of the other entries. Each expression may
   refer to the output columns and to the entries preceding it, so the list order
-  determines the names in scope. A postprocess column whose expression fails to
-  evaluate has the value `null`.
+  determines the names in scope. Recoverable evaluation failures produce `null`
+  at the failing subexpression; enclosing expressions handle it using the same
+  absence rules as SQL. Lists and tuples retain null elements, boolean operations
+  use three-valued logic, and an unknown conditional selects the `else` branch.
+  Integer overflow fails the query rather than becoming `null`.
 
 ## Results
 
@@ -144,8 +147,8 @@ The meaning and types of the above expressions is as follows:
 - `! e` — boolean negation; the operand and the result are `bool`.
 - `defined e` and `undefined e` — of type `bool`. `defined e` is `true` when `e`
   evaluates to a value other than `null`, and `false` when `e` evaluates to `null`
-  and when evaluating `e` fails. `undefined e` is `true` in exactly the cases where
-  `defined e` is `false`.
+  or has a recoverable evaluation failure. `undefined e` is `true` in exactly the
+  cases where `defined e` is `false`. Integer overflow still fails the query.
 - `id(e)` — the primary key of the object `e`: for a single-column key, that
   column's value; otherwise the tuple of its components.
 - `f(e₁, …, eₙ)` — the function `f` applied to the given arguments; its type is `f`'s

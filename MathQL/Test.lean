@@ -295,6 +295,24 @@ def postOf (j : Lean.Json) (row : List (String × Lean.Json)) :
          [("n", json% "not a number")]
        == some [("k", Lean.Json.null), ("m", Lean.Json.null)]
 
+-- Recoverable function errors become null locally, so enclosing expressions
+-- have the same behavior as when their input was decoded as null from SQL.
+#guard postOf (jqPost [("n", "g.n")] "true"
+    [("tuple", "(plus(n, 1), 2)"), ("list", "[plus(n, 1), 2]"),
+     ("and", "false && (plus(n, 1) == 0)"),
+     ("or", "true || (plus(n, 1) == 0)"),
+     ("branch", "if plus(n, 1) == 0 then 1 else 2"),
+     ("present", "defined (plus(n, 1), 2)"), ("second", "tuple.1")])
+    [("n", json% "not a number")] ==
+  some [("tuple", json% [null, 2]), ("list", json% [null, 2]),
+    ("and", json% false), ("or", json% true), ("branch", json% 2),
+    ("present", json% true), ("second", json% 2)]
+
+-- Unknown conditions select the else branch without evaluating the then branch.
+#guard postOf (jqPost [] "true"
+    [("v", "if 1 / 0 == 0 then 9223372036854775807 + 1 else 2")]) [] ==
+  some [("v", json% 2)]
+
 -- Division truncates toward zero, as SQLite's `/` does.
 #guard ([(7, 2, 3), (-7, 2, -3), (7, -2, -3), (-7, -2, 3), (1, 2, 0), (0, 5, 0)]
           : List (Int × Int × Int)).all fun (a, b, q) =>

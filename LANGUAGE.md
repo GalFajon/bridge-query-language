@@ -173,7 +173,20 @@ presence.
 
 In `postprocess` the same two forms test the decoded value: `defined e` is `true` when
 `e` evaluates to a value other than JSON `null`, and `false` when `e` evaluates to
-`null` and when evaluating `e` fails.
+`null` or a recoverable evaluation failure occurs. Integer overflow remains a
+query error, including inside presence tests.
+
+SQL execution and postprocessing both handle absence at each subexpression:
+arithmetic and scalar comparisons propagate `null`; `!null` is `null`.
+Boolean operations use three-valued logic: `false && null` is `false` and
+`true || null` is `true` (also with operands reversed); otherwise combining a
+boolean with `null` yields `null`. A conditional takes its `then` branch only
+when the condition is `true`, and its `else` branch for `false` or `null`.
+
+Lists and tuples preserve absent elements rather than becoming absent themselves:
+`(1 / 0, 2)` evaluates to `[null, 2]`, its second component is `2`, and
+`defined (1 / 0, 2)` is `true`. Recoverable postprocessing function errors likewise
+produce `null` at the function call, allowing the enclosing expression to handle it.
 
 ## Realization
 

@@ -195,6 +195,58 @@ private def suite (db : Connection) : IO Unit := do
     (query [("lo", "-9223372036854775808"), ("hi", "9223372036854775807")]
       "true" [] [] false)
     (json% [[["lo", -9223372036854775808], ["hi", 9223372036854775807]]])
+  -- Exercise all nine pairs, including computed absence rather than only stored NULL.
+  let truth := [("true", json% true), ("false", json% false),
+    ("(1 / 0 == 0)", Lean.Json.null)]
+  let andTable := [[json% true, json% false, Lean.Json.null],
+    [json% false, json% false, json% false],
+    [Lean.Json.null, json% false, Lean.Json.null]]
+  let orTable := [[json% true, json% true, json% true],
+    [json% true, json% false, Lean.Json.null],
+    [json% true, Lean.Json.null, Lean.Json.null]]
+  for ((a, _), i) in truth.zipIdx do
+    for ((b, _), k) in truth.zipIdx do
+      for (op, table) in [("&&", andTable), ("||", orTable)] do
+        let expr := s!"{a} {op} {b}"
+        let value := (table[i]!)[k]!
+        expect db safe s!"three-valued logic: {expr}"
+          (query [("sql", expr)] "true" [] [("post", expr)] false)
+          (Lean.toJson [[("sql", value), ("post", value)]])
+  for (expr, value) in [
+      ("!(1 / 0 == 0)", Lean.Json.null),
+      ("- (1 / 0)", Lean.Json.null),
+      ("if 1 / 0 == 0 then 1 else 2", json% 2),
+      ("(1 / 0, 2)", json% [null, 2]),
+      ("[1 / 0, 2]", json% [null, 2]),
+      ("([1 / 0, 2], (3, 1 / 0))", json% [[null, 2], [3, null]]),
+      ("(1 / 0, 2).1", json% 2),
+      ("defined (1 / 0, 2)", json% true),
+      ("undefined (1 / 0, 2).0", json% true),
+      ("defined [1 / 0, 2]", json% true)] do
+    expect db safe s!"compositional absence: {expr}"
+      (query [("sql", expr)] "true" [] [("post", expr)] false)
+      (Lean.toJson [[("sql", value), ("post", value)]])
+  for op in ["+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">="] do
+    for expr in [s!"(1 / 0) {op} 2", s!"2 {op} (1 / 0)"] do
+      expect db safe s!"null propagation: {expr}"
+        (query [("sql", expr)] "true" [] [("post", expr)] false)
+        (json% [[["sql", null], ["post", null]]])
+  expect db safe "stored null and dependent postprocess absence agree"
+    (query [("b", "r.flag"), ("n", "r.n"),
+      ("sql_and", "false && r.flag"), ("sql_or", "true || r.flag"),
+      ("sql_if", "if r.flag then 1 else 2"), ("sql_tuple", "(r.n, 2)")]
+      "r.id == 3" [] [("post_and", "false && b"), ("post_or", "true || b"),
+        ("post_if", "if b then 1 else 2"), ("post_tuple", "(n, 2)"),
+        ("missing", "1 / 0"), ("dependent", "(missing, 2)")])
+    (json% [[["b", null], ["n", null], ["sql_and", false], ["sql_or", true],
+      ["sql_if", 2], ["sql_tuple", [null, 2]], ["post_and", false],
+      ["post_or", true], ["post_if", 2], ["post_tuple", [null, 2]],
+      ["missing", null], ["dependent", [null, 2]]]])
+  for expr in ["(1 / 0, 9223372036854775807 + 1)",
+      "[1 / 0, 9223372036854775807 + 1]",
+      "defined (1 / 0, 9223372036854775807 + 1)"] do
+    expectOverflow db safe "absence must not mask a later postprocessing overflow"
+      (query [] "true" [] [("v", expr)] false)
   let overflows := ["9223372036854775808", "-9223372036854775809",
     "9223372036854775807 + 1", "-9223372036854775808 - 1",
     "3037000500 * 3037000500", "-(-9223372036854775808)",

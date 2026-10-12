@@ -45,6 +45,10 @@ Both backends must produce the same expected JSON for:
   sorting, composite construction, and postprocessing (including presence tests);
 - typed scalar and nested tuple projections, arithmetic, and conditionals;
 - signed division and division by zero in SQL and postprocessing;
+- all nine three-valued boolean input pairs, unknown conditionals, null arithmetic
+  and comparisons, and preservation of absent elements in lists and tuples;
+- agreement between computed absence, stored NULL, and dependent postprocess
+  fields, plus recoverable function failures and overflow after absent elements;
 - nested arrays, boolean lists and tuples, postprocessing projections, JSON nulls,
   and JSON equality;
 - list/tuple construction across PostgreSQL's 100-argument boundary, including
