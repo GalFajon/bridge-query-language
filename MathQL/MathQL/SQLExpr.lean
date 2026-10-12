@@ -26,7 +26,7 @@ inductive Expr where
   | isNull    : Expr → Expr
   | isNotNull : Expr → Expr
   | case      : (cond thn els : Expr) → Expr   -- CASE WHEN cond THEN thn ELSE els END
-  | json        : Expr → Expr                  -- json(e), the canonical (minified) text
+  | json        : Expr → Expr                  -- compact JSON text comparison/sort key
   | jsonArray   : List Expr → Expr             -- json_array(…)
   | jsonValue   : Ty → Expr → Expr             -- preserve the element's JSON type
   | jsonExtract : Ty → Expr → Nat → Expr       -- extract at its checked result type
@@ -94,6 +94,15 @@ private def postgresArray (values : List String) : String :=
   let chunks := if last.isEmpty && !chunks.isEmpty then chunks else chunks.push (build last)
   "(" ++ " || ".intercalate chunks.toList ++ ")"
 
+/-- JSONB's native order is not MathQL's legacy JSON-text order. Minify its text
+representation without touching whitespace inside strings: the first regex
+alternative consumes an entire quoted string (including escapes), and the
+replacement preserves that capture. SQL NULL remains NULL. -/
+private def postgresJsonKey (s : String) : String :=
+  s!"(regexp_replace(({s})::jsonb::text, \
+    $mathql$(\"(?:[^\"\\\\]|\\\\.)*\")|[[:space:]]+$mathql$, \
+    $mathql$\\1$mathql$, 'g') COLLATE \"C\")"
+
 mutual
 
 /-- Render an expression for the selected database. String literals use single
@@ -139,8 +148,8 @@ def renderExprWith (dialect : Dialect) : Expr → String
   | .isNotNull e      => s!"({renderExprWith dialect e} IS NOT NULL)"
   | .case c t e       => s!"(CASE WHEN {renderExprWith dialect c} THEN {renderExprWith dialect t} ELSE {renderExprWith dialect e} END)"
   | .json e           => match dialect with
-      | .sqlite => s!"json({renderExprWith dialect e})"
-      | .postgresql => s!"({renderExprWith dialect e})::jsonb"
+      | .sqlite => s!"(json({renderExprWith dialect e}) COLLATE \"BINARY\")"
+      | .postgresql => postgresJsonKey (renderExprWith dialect e)
   | .jsonArray es     => match dialect with
       | .sqlite => s!"json_array({renderArgsWith dialect es})"
       | .postgresql => postgresArray (renderValuesWith dialect es)

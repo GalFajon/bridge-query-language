@@ -307,12 +307,14 @@ def compileQueryWith (dialect : SQL.Dialect) (D : Database)
     let order ← q.order.filterMapM fun ((t, e, dir) : Ty × Expr × Direction) => do
       let s ← compileExpr Δ e
       if s.isConstant then return none
-      let s := if t == .string then SQL.Expr.collateText s else
-        match e with
-        | .ident x => match columns.find? (fun (y, _, _) => x == y) with
-          | some (_, a, _) => .ref a
-          | none => s
-        | _ => s
+      let s := match t with
+        | .string => SQL.Expr.collateText s
+        | .list _ | .prod _ => SQL.Expr.json s
+        | .int | .bool => match e with
+          | .ident x => match columns.find? (fun (y, _, _) => x == y) with
+            | some (_, a, _) => .ref a
+            | none => s
+          | _ => s
       return some (s, dir)
     return (froms, output, cond, order)
   match act.run { nextAlias := 1, varAlias := [], joins := [], hoisted := [] } with

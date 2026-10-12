@@ -233,11 +233,40 @@ private def suite (db : Connection) : IO Unit := do
     (json% {"domains": [["r", "Row"]], "output": [["n", "r.n"]],
       "condition": "true", "order": [["n", "desc"]], "limit": 1})
     (json% [[["n", 2]]])
-  -- This existing language behavior is native: SQLite compares JSON text;
-  -- PostgreSQL compares JSONB structurally. Keep the difference explicit.
-  expect db safe "native JSON ordering"
-    (query [("b", "[2,2] > [2,10]")] "true" [] [] false)
-    (if db.dialect == .sqlite then json% [[["b", true]]] else json% [[["b", false]]])
+  for (expr, expected) in [
+      ("[2,2] > [2,10]", true), ("[2,2] >= [2,10]", true),
+      ("[2,2] < [2,10]", false), ("[2,2] <= [2,10]", false),
+      ("[2,2] == [2,10]", false), ("[2,2] != [2,10]", true),
+      ("(2,2) > (2,10)", true), ("[9] > [1,2]", true),
+      ("([9],0) > ([1,2],0)", true), ("[-2] < [-10]", false),
+      ("[0] < []", true), ("[1] > [1,0]", true),
+      ("([true,false], 'a b') == ([true,false], 'a b')", true),
+      ("['a b'] == ['ab']", false), ("['a  b', 'c'] > ['a b', 'c']", false),
+      ("['a\" b'] == ['a\"b']", false), ("['a\\ b'] == ['a\\b']", false),
+      ("['é'] > ['z']", true)] do
+    expect db safe s!"JSON text comparison in both stages: {expr}"
+      (query [("sql", expr)] "true" [] [("post", expr)] false)
+      (Lean.toJson [[("sql", expected), ("post", expected)]])
+  expect db safe "composite comparison in WHERE"
+    (query [("id", "r.id")] "r.items > [2,10]" [("r.id", "asc")])
+    (json% [[["id", 2]], [["id", 3]]])
+  expect db safe "list field uses text ordering"
+    (query [("id", "r.id")] "true" [("r.items", "asc")])
+    (json% [[["id", 1]], [["id", 2]], [["id", 3]]])
+  expect db safe "list output alias uses text ordering"
+    (query [("v", "r.items")] "true" [("v", "desc")])
+    (json% [[["v", []]], [["v", [2,2]]], [["v", [2,10]]]])
+  expect db safe "tuple sort expression uses text ordering"
+    (query [("id", "r.id")] "true" [("(r.items, r.flag)", "asc")])
+    (json% [[["id", 1]], [["id", 2]], [["id", 3]]])
+  expect db safe "composite sorting precedes limit"
+    (json% {"domains": [["r", "Row"]], "output": [["v", "r.items"]],
+      "order": [["v", "asc"]], "limit": 1})
+    (json% [[["v", [2,10]]]])
+  expect db safe "composite SQL NULL survives comparison and sorting"
+    (query [("v", "r.pair"), ("equal", "r.pair == r.pair")]
+      "r.id == 3" [("r.pair", "asc")] [("post", "v == v")])
+    (json% [[["v", null], ["equal", null], ["post", null]]])
   let bad ← run db fixture safe (← checked (query [("bad", "r.bad")] "r.id == 1"))
   check bad.toOption.isNone "invalid JSON must return an error"
   let missing := { fixture with domain := fixture.domain.map fun (n, sch) =>

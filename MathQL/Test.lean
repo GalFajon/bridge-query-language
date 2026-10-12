@@ -196,7 +196,7 @@ def postOf (j : Lean.Json) (row : List (String × Lean.Json)) :
 
 -- Identifiers are quoted; list comparisons canonicalize both sides through json().
 #guard match renderOf (jq [("n", "g.n")] "g.ds == [2, 2]") with
-  | .ok s => s.endsWith "WHERE (json(c1.\"ds\") = json(json_array(2, 2)))"
+  | .ok s => s.endsWith "WHERE ((json(c1.\"ds\") COLLATE \"BINARY\") = (json(json_array(2, 2)) COLLATE \"BINARY\"))"
   | .error _ => false
 
 -- Function calls.

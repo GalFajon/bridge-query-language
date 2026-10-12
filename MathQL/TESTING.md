@@ -59,11 +59,23 @@ Both backends must produce the same expected JSON for:
 - decoding, preparation/execution, and compilation errors, followed by a
   successful request on the same connection.
 
-One test deliberately has backend-specific expectations: ordered JSON
-comparison. SQLite's existing renderer compares canonical JSON **text**, whereas
-PostgreSQL compares JSONB **structurally**. Thus `[2,2] > [2,10]` is true on SQLite
-and false on PostgreSQL. This difference is recorded rather than hidden by
-normalizing test output.
+Lists and tuples compare and sort by compact JSON **text** on both backends,
+preserving the language's existing SQLite behavior: `[2,2] > [2,10]` is true.
+PostgreSQL minifies JSONB's text representation with a string-aware expression
+and compares it using C collation; it does not use native JSONB ordering.
+Regression tests cover all six operators, nested lists/tuples, negative numbers,
+prefixes and empty lists, Unicode, whitespace/quotes/backslashes inside strings,
+SQL nulls, filters, ordering by fields/aliases/tuples, and LIMIT. SQL results are
+also compared against Lean postprocessing; there are no backend-specific expected
+answers in the suite.
+
+Imported composite values must use consistent JSON serialization for exact
+cross-backend text comparison. SQLite json() only removes insignificant
+whitespace; JSONB also normalizes escape spellings and some numeric notation.
+For example, legacy SQLite text `["\u0061"]` and `["a"]` can compare differently
+even though they decode to the same value. JSONB cannot recover discarded source
+spelling. These storage-format cases require normalizing the source data (or
+retaining its original text); the renderer does not migrate existing data.
 
 String comparisons, string key lookups, and string sort keys explicitly use
 SQLite BINARY / PostgreSQL C collation. These match Lean's code-point ordering

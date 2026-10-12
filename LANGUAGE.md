@@ -110,9 +110,11 @@ implemented in `Typing.lean`, against the declarative rules in `Rules.lean`:
   `τ`; `[]` checks against any `List τ`.
 
 All six comparisons share one rule: both sides at a single type, result `Bool`. This
-holds at every type — scalars, lists, and products — because lists and products are
-realized as JSON arrays, and a comparison of them is SQLite's comparison over those
-arrays.
+holds at every type — scalars, lists, and products. Lists and products are realized
+as JSON arrays and compare by their compact JSON text, preserving the original
+SQLite behavior. They are not compared element-by-element numerically:
+`[2,2] > [2,10]` is true. PostgreSQL uses a compact text key rather than native
+JSONB ordering. Composite sort keys use the same text representation.
 
 Integer literals and evaluated arithmetic are restricted to the signed 64-bit
 range, from −9223372036854775808 through 9223372036854775807. Overflow fails the
@@ -198,8 +200,11 @@ the caller supplies, which accepts a name when no table of the database has a co
 of that name.
 
 Lists and products are realized as JSON arrays: a list or tuple literal compiles to
-`json_array(…)`, a tuple projection to `json_extract(…)`, and a comparison of lists or
-tuples is SQLite's comparison over the (canonical) JSON.
+`json_array(…)` on SQLite and batched `jsonb_build_array(…)` on PostgreSQL. Tuple
+projections use `json_extract(…)` or typed JSONB extraction, respectively. Lists
+and tuples compare and sort by compact JSON text with bytewise collation.
+For exact portability, imported JSON must use consistent escape and number
+spellings: SQLite's minifier preserves details which JSONB can normalize away.
 
 ## Implementation
 
