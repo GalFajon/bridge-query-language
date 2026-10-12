@@ -117,16 +117,19 @@ def renderExprWith (dialect : Dialect) : Expr → String
       | .postgresql => s!"({-n})::bigint"
   | .unop .neg e      =>
       let s := s!"- ({renderExprWith dialect e})"
-      if dialect == .sqlite then checkedSQLiteInteger s else s
+      if dialect == .sqlite then checkedSQLiteInteger s else
+        s!"- (({renderExprWith dialect e})::bigint)"
   | .unop op e        => s!"{renderUnop op} ({renderExprWith dialect e})"
   | .binop .div e₁ e₂ => match dialect with
       | .sqlite => checkedSQLiteInteger s!"({renderExprWith dialect e₁} / {renderExprWith dialect e₂})"
       | .postgresql =>
-        s!"({renderExprWith dialect e₁} / NULLIF({renderExprWith dialect e₂}, 0))"
+        s!"(({renderExprWith dialect e₁})::bigint / NULLIF(({renderExprWith dialect e₂})::bigint, 0))"
   | .binop op e₁ e₂   =>
       let s := s!"({renderExprWith dialect e₁} {renderBinop op} {renderExprWith dialect e₂})"
       match dialect, op with
       | .sqlite, .add | .sqlite, .sub | .sqlite, .mul => checkedSQLiteInteger s
+      | .postgresql, .add | .postgresql, .sub | .postgresql, .mul =>
+        s!"(({renderExprWith dialect e₁})::bigint {renderBinop op} ({renderExprWith dialect e₂})::bigint)"
       | _, _ => s
   | .compare op e₁ e₂ => s!"({renderExprWith dialect e₁} {renderCompareOp op} {renderExprWith dialect e₂})"
   | .collateText e =>

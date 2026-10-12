@@ -14,7 +14,7 @@ private def fixture : Database where
     table := "mathql_backend_test"
     column := [col "id" .int, col "n" .int, col "flag" .bool, col "label" .string,
       col "pair" (.prod [.int, .bool, .string, .list .int, .list .bool]),
-      col "items" (.list .int), col "bad" (.list .int)]
+      col "items" (.list .int), col "bad" (.list .int), col "narrow" .int]
     foreignKey := [(.label "parent", {
       domain := .domain "Row", column := [("ref", "id")], doc := "" })]
     doc := "" }),
@@ -52,15 +52,15 @@ private def setup (db : Connection) : IO Unit := do
   let labelTy := if db.dialect == .sqlite then "TEXT COLLATE NOCASE" else "TEXT"
   execute db s!"CREATE TEMP TABLE mathql_backend_test (id BIGINT PRIMARY KEY, \
     n BIGINT, flag BOOLEAN, label {labelTy}, pair {jsonTy}, items {jsonTy}, \
-    ref BIGINT, bad TEXT, c1 BIGINT, \"C2\" BIGINT)"
+    ref BIGINT, bad TEXT, c1 BIGINT, \"C2\" BIGINT, narrow INTEGER)"
   let str := fun s => SQL.renderExprWith db.dialect (.str s)
   let json := fun s => if db.dialect == .postgresql then s!"{str s}::jsonb" else str s
   let pair1 := json "[7,true,\"O'Brien\\\\path\",[1,2],[true,false]]"
   let pair2 := json "[10,false,\"z\",[],[]]"
   execute db s!"INSERT INTO mathql_backend_test VALUES \
-    (1, 2, TRUE, {str "O'Brien\\path"}, {pair1}, {json "[2,10]"}, 99, 'oops', 0, 0), \
-    (2, 1, FALSE, 'z', {pair2}, {json "[2,2]"}, 1, 'oops', 0, 0), \
-    (3, NULL, NULL, NULL, NULL, {json "[]"}, NULL, 'oops', 0, 0)"
+    (1, 2, TRUE, {str "O'Brien\\path"}, {pair1}, {json "[2,10]"}, 99, 'oops', 0, 0, 2147483647), \
+    (2, 1, FALSE, 'z', {pair2}, {json "[2,2]"}, 1, 'oops', 0, 0, -2147483648), \
+    (3, NULL, NULL, NULL, NULL, {json "[]"}, NULL, 'oops', 0, 0, NULL)"
 
 private def checked (j : Lean.Json) : IO Query :=
   match Input.Query.fromJson j >>= checkQuery fixture with
@@ -174,6 +174,11 @@ private def suite (db : Connection) : IO Unit := do
   expect db safe "64-bit literal arithmetic"
     (query [("n", "2147483647 + 1")] "true" [] [] false)
     (json% [[["n", 2147483648]]])
+  expect db safe "32-bit storage uses 64-bit MathQL arithmetic"
+    (query [("sum", "r.narrow + r.narrow"), ("square", "r.narrow * r.narrow"),
+      ("neg", "-r.narrow")] "r.id == 2")
+    (json% [[["sum", -4294967296], ["square", 4611686018427387904],
+      ["neg", 2147483648]]])
   expect db safe "division truncates toward zero in SQL and postprocessing"
     (query [("positive", "7 / 2"), ("negative", "-7 / 2"),
       ("opposite", "7 / -2"), ("mixed", "2 * 6 / 4")]

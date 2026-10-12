@@ -2,15 +2,15 @@ BEGIN;
 CREATE SCHEMA IF NOT EXISTS "sym-ob-small";
 
 CREATE TABLE IF NOT EXISTS "sym-ob-small"."graph" (
-    id INTEGER PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
     graph_in_sparse6 TEXT NOT NULL UNIQUE,
-    "order" INTEGER NOT NULL,
-    "size" INTEGER NOT NULL,
+    "order" BIGINT NOT NULL,
+    "size" BIGINT NOT NULL,
     degree_sequence JSONB NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS "sym-ob-small"."clparameters" (
-    id INTEGER PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
     software TEXT NOT NULL,
     version TEXT NOT NULL,
     prefix TEXT NOT NULL,
@@ -18,34 +18,34 @@ CREATE TABLE IF NOT EXISTS "sym-ob-small"."clparameters" (
 );
 
 CREATE TABLE IF NOT EXISTS "sym-ob-small"."canonicallabeling" (
-    id INTEGER PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
     vertices_in_canonical_order JSONB NOT NULL,
-    graph_in_sparse6_id INTEGER REFERENCES "sym-ob-small"."graph"(id),
-    parameters_id INTEGER REFERENCES "sym-ob-small"."clparameters"(id)
+    graph_in_sparse6_id BIGINT REFERENCES "sym-ob-small"."graph"(id),
+    parameters_id BIGINT REFERENCES "sym-ob-small"."clparameters"(id)
 );
 
 CREATE TABLE IF NOT EXISTS "sym-ob-small"."maniplex" (
-    id INTEGER PRIMARY KEY,
-    "size" INTEGER NOT NULL,
+    id BIGINT PRIMARY KEY,
+    "size" BIGINT NOT NULL,
     schlafli_symbol JSONB NOT NULL,
     generators JSONB NOT NULL,
     orientable BOOLEAN NOT NULL,
     polytopality TEXT NOT NULL CHECK (polytopality IN ('Polytopal', 'Faithful', 'Unfaithful')),
-    cl_flag_graph_id INTEGER REFERENCES "sym-ob-small"."canonicallabeling"(id),
+    cl_flag_graph_id BIGINT REFERENCES "sym-ob-small"."canonicallabeling"(id),
     cl_fg_edge_coloring TEXT,
     one_skeleton TEXT,
-    cl_one_skeleton_id INTEGER REFERENCES "sym-ob-small"."canonicallabeling"(id),
+    cl_one_skeleton_id BIGINT REFERENCES "sym-ob-small"."canonicallabeling"(id),
     one_coskeleton TEXT,
-    cl_one_coskeleton_id INTEGER REFERENCES "sym-ob-small"."canonicallabeling"(id),
+    cl_one_coskeleton_id BIGINT REFERENCES "sym-ob-small"."canonicallabeling"(id),
     color_group JSONB NOT NULL,
     symmetry_type TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS "sym-ob-small"."graphexternalreference" (
-    id INTEGER PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
     source TEXT NOT NULL,
     id_source TEXT NOT NULL,
-    graph_id INTEGER REFERENCES "sym-ob-small"."graph"(id)
+    graph_id BIGINT REFERENCES "sym-ob-small"."graph"(id)
 );
 
 -- These three graph encodings are valid sparse6 strings. Their links to the

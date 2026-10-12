@@ -3,27 +3,27 @@ CREATE SCHEMA IF NOT EXISTS "graphs-small";
 
 CREATE TABLE IF NOT EXISTS "graphs-small"."graph" (
     graph6 TEXT PRIMARY KEY,
-    num_vertices INTEGER NOT NULL,
-    num_edges INTEGER NOT NULL,
+    num_vertices BIGINT NOT NULL,
+    num_edges BIGINT NOT NULL,
     degree_sequence JSONB NOT NULL,
-    min_degree INTEGER NOT NULL,
-    max_degree INTEGER NOT NULL,
+    min_degree BIGINT NOT NULL,
+    max_degree BIGINT NOT NULL,
     is_regular BOOLEAN NOT NULL,
-    num_components INTEGER NOT NULL,
+    num_components BIGINT NOT NULL,
     is_connected BOOLEAN NOT NULL,
-    diameter INTEGER,
-    radius INTEGER,
-    girth INTEGER,
+    diameter BIGINT,
+    radius BIGINT,
+    girth BIGINT,
     is_tree BOOLEAN NOT NULL,
     is_forest BOOLEAN NOT NULL,
     is_bipartite BOOLEAN NOT NULL,
     is_planar BOOLEAN NOT NULL,
     is_eulerian BOOLEAN NOT NULL,
-    num_triangles INTEGER NOT NULL,
-    clique_number INTEGER NOT NULL,
-    independence_number INTEGER NOT NULL,
-    chromatic_number INTEGER NOT NULL,
-    automorphism_count INTEGER NOT NULL
+    num_triangles BIGINT NOT NULL,
+    clique_number BIGINT NOT NULL,
+    independence_number BIGINT NOT NULL,
+    chromatic_number BIGINT NOT NULL,
+    automorphism_count BIGINT NOT NULL
 );
 
 INSERT INTO "graphs-small"."graph" (

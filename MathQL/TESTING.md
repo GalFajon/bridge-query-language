@@ -75,6 +75,13 @@ the query, including in postprocessing; it is never clamped or converted to null
 SQLite arithmetic checks reject its implicit promotion to REAL before subsequent
 operations can use it. The SQLite cell reader also refuses non-integer values
 for integer columns. PostgreSQL retains its native BIGINT overflow errors.
+PostgreSQL arithmetic casts operands to BIGINT before evaluation, so SMALLINT
+and INTEGER storage columns do not impose an accidental 16/32-bit limit.
+The PostgreSQL import scripts in `data/` use BIGINT for every MathQL integer
+column, including primary and foreign keys. Their CREATE TABLE IF NOT EXISTS
+statements do not migrate columns in an already imported database. The test
+fixture deliberately retains one INTEGER column to verify compatibility with
+existing databases.
 Division by zero remains null, as before. Backend-specific error wording is not
 part of the protocol contract.
 
