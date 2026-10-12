@@ -69,6 +69,15 @@ private def expect (db : Connection) (safe : String → Bool) (name : String)
     check (actual == expected) s!"{name}: expected {expected.compress}, got {actual.compress}"
   IO.println s!"  PASS {name}"
 
+private def expectOverflow (db : Connection) (safe : String → Bool)
+    (name : String) (j : Lean.Json) : IO Unit := do
+  match ← run db fixture safe (← checked j) with
+  | .ok value => throw <| IO.userError s!"{name}: expected overflow, got {value.compress}"
+  | .error message =>
+    check (message.contains "overflow" || message.contains "out of range")
+      s!"{name}: wrong error: {message}"
+  IO.println s!"  PASS {name}"
+
 private def suite (db : Connection) : IO Unit := do
   setup db
   let safe ← db.safeAliasPredicate fixture
@@ -153,6 +162,40 @@ private def suite (db : Connection) : IO Unit := do
     (query [("lo", "-9223372036854775808"), ("hi", "9223372036854775807")]
       "true" [] [] false)
     (json% [[["lo", -9223372036854775808], ["hi", 9223372036854775807]]])
+  let overflows := ["9223372036854775808", "-9223372036854775809",
+    "9223372036854775807 + 1", "-9223372036854775808 - 1",
+    "3037000500 * 3037000500", "-(-9223372036854775808)",
+    "-9223372036854775808 / -1", "(9223372036854775807 + 1) - 1"]
+  for expr in overflows do
+    expectOverflow db safe s!"SQL overflow: {expr}"
+      (query [("n", expr)] "true" [] [] false)
+    expectOverflow db safe s!"postprocessing overflow: {expr}"
+      (query [] "true" [] [("n", expr)] false)
+  expectOverflow db safe "overflow inside SQL tuple"
+    (query [("t", "(r.n + 9223372036854775807, true)")] "r.id == 1")
+  expectOverflow db safe "overflow in condition"
+    (query [("id", "r.id")] "r.n + 9223372036854775807 > 0")
+  expectOverflow db safe "overflow in order key"
+    (query [("id", "r.id")] "true" [("r.n + 9223372036854775807", "asc")])
+  expectOverflow db safe "defined cannot hide SQL overflow"
+    (query [("b", "defined (r.n + 9223372036854775807)")] "r.id == 1")
+  for expr in ["defined (9223372036854775807 + 1)",
+      "undefined (9223372036854775807 + 1)", "[9223372036854775807 + 1]"] do
+    expectOverflow db safe "postprocessing cannot hide overflow"
+      (query [] "true" [] [("v", expr)] false)
+  expect db safe "in-range arithmetic and SQL nulls"
+    (query [("n", "r.n * 2 + 1"), ("zero", "r.n / 0")]
+      "true" [("r.id", "asc")])
+    (json% [[["n", 5], ["zero", null]], [["n", 3], ["zero", null]],
+      [["n", null], ["zero", null]]])
+  expect db safe "arithmetic at the signed boundaries remains exact"
+    (query [("hi", "9223372036854775806 + 1"),
+      ("lo", "-9223372036854775807 - 1"), ("neg", "-(-2)"),
+      ("div", "-9223372036854775808 / 1")] "true" []
+      [("post_hi", "hi * 1"), ("post_lo", "lo / 1")] false)
+    (json% [[["hi", 9223372036854775807], ["lo", -9223372036854775808],
+      ["neg", 2], ["div", -9223372036854775808],
+      ["post_hi", 9223372036854775807], ["post_lo", -9223372036854775808]]])
   expect db safe "limit and ordering by output alias"
     (json% {"domains": [["r", "Row"]], "output": [["n", "r.n"]],
       "condition": "true", "order": [["n", "desc"]], "limit": 1})

@@ -73,6 +73,15 @@ def renderUnop : UnaryOp → String
 /-- Render an identifier, double-quoted, an embedded quote doubled. -/
 def renderIdent (s : String) : String := "\"" ++ s.replace "\"" "\"\"" ++ "\""
 
+/-- SQLite promotes overflowing integer arithmetic to REAL. Reject it before
+another operation or a cell decoder can truncate/clamp it. The scalar subquery
+keeps the SQL text linear in the expression size; CASE preserves SQL NULL.
+SQLite's abs(minInt64) supplies a native integer-overflow error on failure. -/
+private def checkedSQLiteInteger (s : String) : String :=
+  s!"(SELECT CASE WHEN typeof(_mathql_integer) IN ('integer', 'null') \
+     THEN _mathql_integer ELSE abs(-9223372036854775808) END \
+     FROM (SELECT {s} AS _mathql_integer))"
+
 mutual
 
 /-- Render an expression for the selected database. String literals use single
@@ -92,14 +101,21 @@ def renderExprWith (dialect : Dialect) : Expr → String
   | .null             => "NULL"
   | .call f es        => s!"{renderIdent f}({renderArgsWith dialect es})"
   | .unop .neg (.int n) => match dialect with
-      | .sqlite => s!"- ({n})"
-      | .postgresql => s!"(-{n})::bigint"
+      | .sqlite => checkedSQLiteInteger s!"- ({n})"
+      | .postgresql => s!"({-n})::bigint"
+  | .unop .neg e      =>
+      let s := s!"- ({renderExprWith dialect e})"
+      if dialect == .sqlite then checkedSQLiteInteger s else s
   | .unop op e        => s!"{renderUnop op} ({renderExprWith dialect e})"
   | .binop .div e₁ e₂ => match dialect with
-      | .sqlite => s!"({renderExprWith dialect e₁} / {renderExprWith dialect e₂})"
+      | .sqlite => checkedSQLiteInteger s!"({renderExprWith dialect e₁} / {renderExprWith dialect e₂})"
       | .postgresql =>
         s!"({renderExprWith dialect e₁} / NULLIF({renderExprWith dialect e₂}, 0))"
-  | .binop op e₁ e₂   => s!"({renderExprWith dialect e₁} {renderBinop op} {renderExprWith dialect e₂})"
+  | .binop op e₁ e₂   =>
+      let s := s!"({renderExprWith dialect e₁} {renderBinop op} {renderExprWith dialect e₂})"
+      match dialect, op with
+      | .sqlite, .add | .sqlite, .sub | .sqlite, .mul => checkedSQLiteInteger s
+      | _, _ => s
   | .compare op e₁ e₂ => s!"({renderExprWith dialect e₁} {renderCompareOp op} {renderExprWith dialect e₂})"
   | .isNull e         => s!"({renderExprWith dialect e} IS NULL)"
   | .isNotNull e      => s!"({renderExprWith dialect e} IS NOT NULL)"
@@ -119,7 +135,11 @@ def renderExprWith (dialect : Dialect) : Expr → String
       | .postgresql, .string => s!"({s})::text"
       | _, _ => s
   | .jsonExtract t e i => match dialect with
-      | .sqlite => s!"json_extract({renderExprWith dialect e}, '$[{i}]')"
+      | .sqlite =>
+        let s := s!"json_extract({renderExprWith dialect e}, '$[{i}]')"
+        match t with
+        | .int => checkedSQLiteInteger s
+        | _ => s
       | .postgresql =>
         let s := s!"({renderExprWith dialect e})::jsonb"
         match t with

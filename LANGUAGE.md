@@ -114,6 +114,12 @@ holds at every type — scalars, lists, and products — because lists and produ
 realized as JSON arrays, and a comparison of them is SQLite's comparison over those
 arrays.
 
+Integer literals and evaluated arithmetic are restricted to the signed 64-bit
+range, from −9223372036854775808 through 9223372036854775807. Overflow fails the
+query in both SQL execution and postprocessing, including overflow in an
+intermediate result. Division truncates toward zero; division by zero produces
+an absent value, not an overflow error.
+
 ## Queries
 
 A query is the top-level form, submitted as JSON:

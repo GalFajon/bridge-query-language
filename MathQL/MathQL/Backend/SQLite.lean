@@ -7,7 +7,10 @@ private def readSQLiteCell (stmt : SQLite.Stmt) (index : Nat) (ty : Ty) : IO Lea
   let i := Int32.ofInt index
   if (← stmt.columnType i) == .null then return .null
   match ty with
-  | .int => return Lean.toJson (← stmt.columnInt64 i).toInt
+  | .int =>
+    unless (← stmt.columnType i) == .integer do
+      throw <| IO.userError "expected a signed 64-bit integer; refusing numeric coercion"
+    return Lean.toJson (← stmt.columnInt64 i).toInt
   | .bool => return Lean.toJson ((← stmt.columnInt64 i) != 0)
   | .string => return .str (← stmt.columnText i)
   | .list _ | .prod _ => parseJsonCell (← stmt.columnText i)

@@ -4,6 +4,7 @@ import MathQL.Result
 import MathQL.SQL
 import MathQL.Database
 import MathQL.Query
+import MathQL.Integer
 
 /-! Compilation of a type-checked query to SQL: scalar expressions compile to SQL
 expressions, and domain expressions compile to aliased table rows, hoisted into
@@ -157,7 +158,7 @@ termination_by sizeOf d
 /-- Compile a scalar expression to a SQL expression. -/
 def compileExpr (Γ : SqlCtx) (e : Expr) : CompileM SQL.Expr := do
   match e with
-  | .int n => return .int n
+  | .int n => return .int (← checkedInteger n)
 
   | .bool b => return .bool b
 
@@ -187,6 +188,9 @@ def compileExpr (Γ : SqlCtx) (e : Expr) : CompileM SQL.Expr := do
       match names.forDialect Γ.dialect with
       | .some c => return .call c ss
       | .none => throw s!"function {f.name} is not available on PostgreSQL"
+
+  -- The minimum signed integer is parsed as negation of a positive literal.
+  | .unop .neg (.int n) => return .int (← checkedInteger (-n))
 
   | .unop op e =>
     let s ← compileExpr Γ e

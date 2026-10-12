@@ -21,39 +21,51 @@ structure PostEnvironment where
   ident : List (Ident × Lean.Json)
   function : List (Ident × (List Lean.Json → Result Lean.Json))
 
-def evalUnaryOp : UnaryOp → Lean.Json → Result Lean.Json
+/-- Absence becomes JSON null; integer overflow must fail the whole query. -/
+inductive PostError where
+  | absent : String → PostError
+  | overflow : PostError
+
+abbrev PostResult := Except PostError
+
+private def liftPost {α : Type} (r : Result α) : PostResult α := r.mapError .absent
+
+private def postInteger (n : Int) : PostResult Lean.Json :=
+  if integerInRange n then .ok (.num n) else .error .overflow
+
+def evalUnaryOp : UnaryOp → Lean.Json → PostResult Lean.Json
 | .not, j => do
-  let b ← j.getBool?
+  let b ← liftPost j.getBool?
   return .bool (not b)
 | .neg, j => do
-  let k ← j.getInt?
-  return .num (- k)
+  let k ← liftPost j.getInt?
+  postInteger (- k)
 
-def evalBinaryOp : BinaryOp → Lean.Json → Lean.Json → Result Lean.Json
+def evalBinaryOp : BinaryOp → Lean.Json → Lean.Json → PostResult Lean.Json
 | .and, v1, v2 => do
-  let b1 ← v1.getBool?
-  let b2 ← v2.getBool?
+  let b1 ← liftPost v1.getBool?
+  let b2 ← liftPost v2.getBool?
   return .bool (b1 && b2)
 | .or, v1, v2 => do
-  let b1 ← v1.getBool?
-  let b2 ← v2.getBool?
+  let b1 ← liftPost v1.getBool?
+  let b2 ← liftPost v2.getBool?
   return .bool (b1 || b2)
 | .add, v1, v2 => do
-  let k1 ← v1.getInt?
-  let k2 ← v2.getInt?
-  return .num (k1 + k2)
+  let k1 ← liftPost v1.getInt?
+  let k2 ← liftPost v2.getInt?
+  postInteger (k1 + k2)
 | .sub, v1, v2 => do
-  let k1 ← v1.getInt?
-  let k2 ← v2.getInt?
-  return .num (k1 - k2)
+  let k1 ← liftPost v1.getInt?
+  let k2 ← liftPost v2.getInt?
+  postInteger (k1 - k2)
 | .mul, v1, v2 => do
-  let k1 ← v1.getInt?
-  let k2 ← v2.getInt?
-  return .num (k1 * k2)
+  let k1 ← liftPost v1.getInt?
+  let k2 ← liftPost v2.getInt?
+  postInteger (k1 * k2)
 | .div, v1, v2 => do
-  let k1 ← v1.getInt?
-  let k2 ← v2.getInt?
-  if k2 == 0 then throw "division by zero" else return .num (k1.tdiv k2)
+  let k1 ← liftPost v1.getInt?
+  let k2 ← liftPost v2.getInt?
+  if k2 == 0 then throw (.absent "division by zero") else postInteger (k1.tdiv k2)
 
 /-- Compare two JSON values at their MathQL type. -/
 def compareJson : Ty → Lean.Json → Lean.Json → Result Ordering
@@ -87,14 +99,17 @@ def evalComparison (op : ComparisonOp) (t : Ty) (j1 : Lean.Json) (j2 : Lean.Json
       | .gt => c.isGT
       | .ge => c.isGE
 
-/-- Whether a result is a non-null value; a failure counts as null. -/
-def isDefined : Result Lean.Json → Bool
-| .ok .null | .error _ => false
-| .ok _ => true
+/-- Presence tests must not hide a fatal arithmetic error. -/
+def isDefined : PostResult Lean.Json → PostResult Bool
+| .ok .null | .error (.absent _) => .ok false
+| .error .overflow => .error .overflow
+| .ok _ => .ok true
 
-def evalPostExpr (env : PostEnvironment) : Expr → Result Lean.Json
+def evalPostExpr (env : PostEnvironment) : Expr → PostResult Lean.Json
 
-| .int n => return .num n
+| .int n => postInteger n
+
+| .unop .neg (.int n) => postInteger (-n)
 
 | .bool b => return .bool b
 
@@ -102,21 +117,24 @@ def evalPostExpr (env : PostEnvironment) : Expr → Result Lean.Json
 
 | .ident x =>
   match env.ident.lookup x with
-  | none => throw s!"unknown identifier {x.name}"
+  | none => throw (.absent s!"unknown identifier {x.name}")
   | some v => return v
 
 | .id _ =>
-  throw s!"id is not allowed in postprocessing"
+  throw (.absent "id is not allowed in postprocessing")
 
 | .field _ _ =>
-  throw s!"field projection is not allowed in postprocessing"
+  throw (.absent "field projection is not allowed in postprocessing")
 
 | .call f args =>
   match env.function.lookup f with
-  | .none => throw s!"unknown function {f.name}"
+  | .none => throw (.absent s!"unknown function {f.name}")
   | .some f => do
     let vs ← args.mapM (evalPostExpr env)
-    f vs
+    let v ← liftPost (f vs)
+    match v with
+    | .num _ => postInteger (← liftPost v.getInt?)
+    | _ => return v
 
 | .unop op e => do
   let v ← evalPostExpr env e
@@ -130,7 +148,7 @@ def evalPostExpr (env : PostEnvironment) : Expr → Result Lean.Json
 | .compare op t e1 e2 => do
   let v1 ← evalPostExpr env e1
   let v2 ← evalPostExpr env e2
-  evalComparison op t v1 v2
+  liftPost (evalComparison op t v1 v2)
 
 | .list _ es => do
   let vs ← es.mapM (evalPostExpr env)
@@ -142,29 +160,32 @@ def evalPostExpr (env : PostEnvironment) : Expr → Result Lean.Json
 
 | .proj _ e1 n => do
   let v ← evalPostExpr env e1
-  v.getArrVal? n -- We're relying here on Result = Except String
+  liftPost (v.getArrVal? n)
 
 | .ite b e1 e2 => do
   let b ← evalPostExpr env b
   match b.getBool? with
   | .ok true => evalPostExpr env e1
   | .ok false => evalPostExpr env e2
-  | .error msg => throw s!"boolean expected ({msg})"
+  | .error msg => throw (.absent s!"boolean expected ({msg})")
 
-| .defined e =>
-  return .bool (isDefined (evalPostExpr env e))
+| .defined e => do
+  return .bool (← isDefined (evalPostExpr env e))
 
-| .undefined e =>
-  return .bool (not (isDefined (evalPostExpr env e)))
+| .undefined e => do
+  return .bool (not (← isDefined (evalPostExpr env e)))
 
 
 def evalPostprocess (env : PostEnvironment) :
-  List (Ident × Ty × Expr) → List (Ident × Lean.Json)
-| [] => []
-| (x, _, e) :: ps =>
-  let v := match evalPostExpr env e with | .ok v => v | .error _ => .null
-  let vs := evalPostprocess {env with ident := (x, v) :: env.ident} ps
-  (x, v) :: vs
+  List (Ident × Ty × Expr) → Result (List (Ident × Lean.Json))
+| [] => return []
+| (x, _, e) :: ps => do
+  let v ← match evalPostExpr env e with
+    | .ok v => pure v
+    | .error (.absent _) => pure .null
+    | .error .overflow => throw "integer overflow: outside signed 64-bit range"
+  let vs ← evalPostprocess {env with ident := (x, v) :: env.ident} ps
+  return (x, v) :: vs
 
 /-- Step through every result row, decoding each into its output object. -/
 partial def collectRows
@@ -175,7 +196,9 @@ partial def collectRows
     IO (Array (List (Ident × Lean.Json))) := do
   if ← cursor.next then
     let row ← rowObject cursor q.output
-    let post := evalPostprocess {ident := row, function := funs} q.postprocess
+    let post ← match evalPostprocess {ident := row, function := funs} q.postprocess with
+      | .ok post => pure post
+      | .error e => throw (IO.userError e)
     collectRows funs cursor q (acc.push (row ++ post))
   else
     return acc

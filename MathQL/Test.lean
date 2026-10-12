@@ -88,11 +88,11 @@ def comparison (op : ComparisonOp) (t : Ty) (a b : Lean.Json) : Option Lean.Json
     `row`, or `none` when type-checking reports an error. -/
 def postOf (j : Lean.Json) (row : List (String × Lean.Json)) :
     Option (List (String × Lean.Json)) :=
-  (Input.Query.fromJson j |>.bind (checkQuery toyDB) |>.toOption).map fun q =>
+  (Input.Query.fromJson j |>.bind (checkQuery toyDB) |>.toOption).bind fun q =>
     (evalPostprocess
       { ident := row.map fun (r : String × Lean.Json) => (.ident r.1, r.2)
         function := toyDB.postFunction.map fun (f, _, impl) => (f, impl) }
-      q.postprocess).map fun (p : Ident × Lean.Json) => (p.1.name, p.2)
+      q.postprocess).toOption.map fun ps => ps.map fun (p : Ident × Lean.Json) => (p.1.name, p.2)
 
 -- Well-typed queries.
 #guard elaborates (jq [("n", "g.n")] "g.planar")
@@ -114,7 +114,7 @@ def postOf (j : Lean.Json) (row : List (String × Lean.Json)) :
 
 -- The rendering of an empty clause.
 #guard match renderOf (json% { "domains": [], "output": $(entries [("x", "2 + 2")]) }) with
-  | .ok s => s == "SELECT (2 + 2) AS c1 WHERE 1"
+  | .ok s => s == s!"SELECT {SQL.renderExpr (.binop .add (.int 2) (.int 2))} AS c1 WHERE 1"
   | .error _ => false
 #guard match renderOf (json% { "domains": [],
                                "output": $(entries [("n", "Graph['abc'].n")]) }) with

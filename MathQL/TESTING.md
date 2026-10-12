@@ -41,6 +41,8 @@ imported tables nor create persistent schemas.
 Both backends must produce the same expected JSON for:
 
 - scalar types, SQL nulls, string escaping, and signed 64-bit values;
+- overflow errors for literals, negation, arithmetic intermediates, conditions,
+  sorting, composite construction, and postprocessing (including presence tests);
 - typed scalar and nested tuple projections, arithmetic, and conditionals;
 - signed division and division by zero in SQL and postprocessing;
 - nested arrays, boolean lists and tuples, postprocessing projections, JSON nulls,
@@ -57,8 +59,15 @@ One test deliberately has backend-specific expectations: ordered JSON
 comparison. SQLite's existing renderer compares canonical JSON **text**, whereas
 PostgreSQL compares JSONB **structurally**. Thus `[2,2] > [2,10]` is true on SQLite
 and false on PostgreSQL. This difference is recorded rather than hidden by
-normalizing test output. String collation and arithmetic outside the supported
-signed 64-bit range are still governed by the database.
+normalizing test output. String collation is still governed by the database.
+
+Integers are signed 64-bit values. Evaluated arithmetic outside that range fails
+the query, including in postprocessing; it is never clamped or converted to null.
+SQLite arithmetic checks reject its implicit promotion to REAL before subsequent
+operations can use it. The SQLite cell reader also refuses non-integer values
+for integer columns. PostgreSQL retains its native BIGINT overflow errors.
+Division by zero remains null, as before. Backend-specific error wording is not
+part of the protocol contract.
 
 `NULL` ordering is explicitly aligned with SQLite: ascending puts nulls first,
 descending puts them last. Tests specify ordering wherever row order matters.
