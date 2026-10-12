@@ -50,6 +50,10 @@ def evalBinaryOp : BinaryOp → Lean.Json → Lean.Json → Result Lean.Json
   let k1 ← v1.getInt?
   let k2 ← v2.getInt?
   return .num (k1 * k2)
+| .div, v1, v2 => do
+  let k1 ← v1.getInt?
+  let k2 ← v2.getInt?
+  if k2 == 0 then throw "division by zero" else return .num (k1.tdiv k2)
 
 /-- Compare two JSON values at their MathQL type. -/
 def compareJson : Ty → Lean.Json → Lean.Json → Result Ordering

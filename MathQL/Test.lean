@@ -295,6 +295,23 @@ def postOf (j : Lean.Json) (row : List (String × Lean.Json)) :
          [("n", json% "not a number")]
        == some [("k", Lean.Json.null), ("m", Lean.Json.null)]
 
+-- Division truncates toward zero, as SQLite's `/` does.
+#guard ([(7, 2, 3), (-7, 2, -3), (7, -2, -3), (-7, -2, 3), (1, 2, 0), (0, 5, 0)]
+          : List (Int × Int × Int)).all fun (a, b, q) =>
+  postOf (jqPost [("a", "g.n"), ("b", "h.n")] "true" [("q", "a / b")])
+    [("a", .num a), ("b", .num b)]
+  == some [("q", .num q)]
+
+-- A zero divisor makes the entry null, as SQLite's `/` does.
+#guard postOf (jqPost [("a", "g.n")] "true" [("q", "a / 0"), ("u", "undefined (a / 0)")])
+         [("a", json% 7)]
+       == some [("q", Lean.Json.null), ("u", json% true)]
+
+-- `*` and `/` share a precedence level and associate to the left.
+#guard postOf (jqPost [("a", "g.n")] "true" [("p", "a * 6 / 4"), ("q", "a * 12 / 2 / 3")])
+         [("a", json% 2)]
+       == some [("p", json% 3), ("q", json% 4)]
+
 -- Comparison is evaluated at the type the term carries, matching what the same
 -- expression compiles to in SQL: numeric at int and bool, by code point at
 -- string, and by canonical JSON text at list and prod.

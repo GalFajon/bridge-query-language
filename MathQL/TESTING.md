@@ -3,9 +3,17 @@
 Run builds and tests inside WSL, from the `MathQL` directory:
 
 ```sh
+lake update
+python3 prepare_dependencies.py
 lake build
 lake exe backendTest
 ```
+
+Lean v4.35.0-rc2 reports deprecated theorem names in leanpostgres's pinned
+`lean-json` v0.3.0. That package treats warnings as errors, so a fresh checkout
+needs `prepare_dependencies.py` before the first build. The script changes only
+the ignored `.lake/packages/json/lakefile.lean` cache entry, allowing those
+warnings; it is idempotent and fails if the pinned package layout changes.
 
 The build checks the parser, typechecker, compiler, and postprocessing assertions
 in `Test.lean`. `backendTest` runs integration tests against an in-memory SQLite
@@ -34,7 +42,9 @@ Both backends must produce the same expected JSON for:
 
 - scalar types, SQL nulls, string escaping, and signed 64-bit values;
 - typed scalar and nested tuple projections, arithmetic, and conditionals;
-- nested arrays, boolean lists, JSON nulls, and JSON equality;
+- signed division and division by zero in SQL and postprocessing;
+- nested arrays, boolean lists and tuples, postprocessing projections, JSON nulls,
+  and JSON equality;
 - physical column discovery, including undeclared and mixed-case column names;
 - explicit null ordering, output aliases, limits, empty results, and empty outputs;
 - missing join targets, object lookups without domain variables, and joins across

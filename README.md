@@ -41,11 +41,15 @@ python -m pip install -e python       # the MCP server and its dependencies
 
 ```
 cd MathQL
-lake build          # builds the `mathql` executable (and the test runner)
+lake update
+python3 prepare_dependencies.py
+lake build          # builds the `mathql` executable (and the test runners)
 ```
 
-The first build fetches the Lean toolchain and compiles the SQLite
-amalgamation, so it takes a few minutes; later builds are fast.
+The first build fetches the Lean toolchain and compiles the SQLite amalgamation
+and PostgreSQL binding, so it takes a few minutes; later builds are fast.
+`prepare_dependencies.py` applies the Lean v4.35 compatibility setting to
+Lake's ignored `lean-json` cache; see [backend testing](MathQL/TESTING.md).
 
 ## Databases
 

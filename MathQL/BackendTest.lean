@@ -96,6 +96,12 @@ private def suite (db : Connection) : IO Unit := do
       ("bs", "r.pair.4")] "r.id == 1")
     (json% [[["v", [[2,10],[1,2]]], ["t", [true,[2,10],"O'Brien\\path"]],
       ["bs", [true,false]]]])
+  expect db safe "nested booleans remain booleans through postprocessing"
+    (query [("flag", "r.flag"), ("tuple", "(r.flag, r.n)"),
+      ("list", "[r.flag, false]")] "r.id == 1" []
+      [("first", "tuple.0"), ("is_true", "tuple.0 == true")])
+    (json% [[["flag", true], ["tuple", [true,2]], ["list", [true,false]],
+      ["first", true], ["is_true", true]]])
   expect db safe "JSON null remains undefined after composite projection"
     (query [("v", "(r.items, r.pair).1"), ("missing", "undefined (r.items, r.pair).1")]
       "r.id == 3")
@@ -131,6 +137,18 @@ private def suite (db : Connection) : IO Unit := do
   expect db safe "64-bit literal arithmetic"
     (query [("n", "2147483647 + 1")] "true" [] [] false)
     (json% [[["n", 2147483648]]])
+  expect db safe "division truncates toward zero in SQL and postprocessing"
+    (query [("positive", "7 / 2"), ("negative", "-7 / 2"),
+      ("opposite", "7 / -2"), ("mixed", "2 * 6 / 4")]
+      "true" [] [("post", "negative / 2"), ("post_mixed", "mixed / 2")] false)
+    (json% [[["positive", 3], ["negative", -3], ["opposite", -3],
+      ["mixed", 3], ["post", -1], ["post_mixed", 1]]])
+  expect db safe "division by zero is absent in both stages"
+    (query [("zero", "7 / 0")] "true" []
+      [("post_zero", "7 / 0"), ("undefined_sql", "undefined zero"),
+       ("undefined_post", "undefined post_zero")] false)
+    (json% [[["zero", null], ["post_zero", null], ["undefined_sql", true],
+      ["undefined_post", true]]])
   expect db safe "signed 64-bit boundaries"
     (query [("lo", "-9223372036854775808"), ("hi", "9223372036854775807")]
       "true" [] [] false)

@@ -60,7 +60,7 @@ e ::= n | 's' | true | false                          -- literals
     | id(o)                                            -- an object's primary key
     | c                                                -- a named constant
     | f(e₁, …, eₙ)                                      -- a function the database declares
-    | - e | e + e | e - e | e * e                      -- arithmetic (Int)
+    | - e | e + e | e - e | e * e | e / e              -- arithmetic (Int)
     | ¬ e | e ∧ e | e ∨ e                              -- logic (Bool)
     | e = e | e ≠ e | e < e | e ≤ e | e > e | e ≥ e    -- comparison
     | if e then e else e                               -- conditional
@@ -71,6 +71,9 @@ e ::= n | 's' | true | false                          -- literals
 
 String literals are single-quoted, with a literal quote written doubled (`'it''s'`).
 ASCII synonyms: `∧`=`&&`, `∨`=`||`, `¬`=`!`, `≤`=`<=`, `≥`=`>=`, `≠`=`!=`, `=`=`==`.
+
+`e₁ / e₂` is the quotient truncated toward zero, so `-7 / 2` is `-3`. A zero divisor
+yields an absent value.
 
 ## Typing
 
@@ -93,7 +96,7 @@ implemented in `Typing.lean`, against the declarative rules in `Rules.lean`:
 - **constant** — if the database declares `c : τ`, then `c ⇒ τ`.
 - **function** — if the database declares `f : τ₁, …, τₙ → τ` for the clause being
   checked, then `f(e₁, …, eₙ) ⇒ τ` with each `eᵢ ⇐ τᵢ`.
-- **arithmetic** — `- e ⇒ Int` with `e ⇐ Int`; `e₁ ⊙ e₂ ⇒ Int` for `⊙ ∈ {+,-,*}`,
+- **arithmetic** — `- e ⇒ Int` with `e ⇐ Int`; `e₁ ⊙ e₂ ⇒ Int` for `⊙ ∈ {+,-,*,/}`,
   both `⇐ Int`.
 - **logic** — `¬ e ⇒ Bool` with `e ⇐ Bool`; `e₁ ⊙ e₂ ⇒ Bool` for `⊙ ∈ {∧,∨}`, both
   `⇐ Bool`.

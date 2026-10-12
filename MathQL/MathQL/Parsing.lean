@@ -112,7 +112,8 @@ private partial def addExpr : Parser Input.Expr :=
     ((tok "+" *> pure (.binop .add)) <|> (tok "-" *> pure (.binop .sub)))
 
 private partial def mulExpr : Parser Input.Expr :=
-  chainl1 unaryExpr (tok "*" *> pure (.binop .mul))
+  chainl1 unaryExpr
+    ((tok "*" *> pure (.binop .mul)) <|> (tok "/" *> pure (.binop .div)))
 
 private partial def unaryExpr : Parser Input.Expr :=
   (do keyword "defined"; let e ← unaryExpr; return .defined e) <|>

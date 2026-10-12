@@ -15,6 +15,7 @@ inductive BinaryOp where
   | add
   | sub
   | mul
+  | div
 deriving Repr, Inhabited, BEq
 
 /-- Comparisons. -/

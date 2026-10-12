@@ -56,7 +56,7 @@ end
 /-- The SQL text of a binary operator. -/
 def renderBinop : BinaryOp → String
   | .and => "AND" | .or => "OR"
-  | .add => "+" | .sub => "-" | .mul => "*"
+  | .add => "+" | .sub => "-" | .mul => "*" | .div => "/"
 
 /-- The SQL text of a comparison operator. -/
 def renderCompareOp : ComparisonOp → String
@@ -95,6 +95,10 @@ def renderExprWith (dialect : Dialect) : Expr → String
       | .sqlite => s!"- ({n})"
       | .postgresql => s!"(-{n})::bigint"
   | .unop op e        => s!"{renderUnop op} ({renderExprWith dialect e})"
+  | .binop .div e₁ e₂ => match dialect with
+      | .sqlite => s!"({renderExprWith dialect e₁} / {renderExprWith dialect e₂})"
+      | .postgresql =>
+        s!"({renderExprWith dialect e₁} / NULLIF({renderExprWith dialect e₂}, 0))"
   | .binop op e₁ e₂   => s!"({renderExprWith dialect e₁} {renderBinop op} {renderExprWith dialect e₂})"
   | .compare op e₁ e₂ => s!"({renderExprWith dialect e₁} {renderCompareOp op} {renderExprWith dialect e₂})"
   | .isNull e         => s!"({renderExprWith dialect e} IS NULL)"
